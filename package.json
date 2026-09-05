@@ -1,5 +1,5 @@
 {
-  "name": "langfuse-cli",
+  "name": "@cognelis/langfuse-cli",
   "version": "2.0.0",
   "description": "Interact with the Langfuse API from the command line, with keyring-backed profiles",
   "author": "Langfuse",
@@ -22,8 +22,11 @@
   },
   "files": [
     "bin",
-    "dist",
-    "README.md"
+    "dist/cli.js",
+    "dist/contracts",
+    "dist/skills",
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "test": "bun test",
@@ -35,7 +38,8 @@
     "goldens:update": "bun scripts/goldens.ts",
     "build": "bun scripts/build.ts",
     "compile": "bun run build && bun scripts/compile.ts",
-    "release:check": "bun scripts/release-check.ts"
+    "release:check": "bun scripts/release-check.ts",
+    "prepublishOnly": "bun run release:check && bun run build"
   },
   "dependencies": {},
   "devDependencies": {
@@ -54,6 +58,8 @@
   "engines": {
     "node": ">=20"
   },
-  "private": true,
-  "homepage": "https://github.com/cognelis/langfuse-cli#readme"
+  "homepage": "https://github.com/cognelis/langfuse-cli#readme",
+  "publishConfig": {
+    "access": "public"
+  }
 }

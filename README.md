@@ -9,13 +9,20 @@ The repository also ships one Agent Skill and plugin manifests, so Codex and Cla
 Node.js 20+ or Bun. The CLI has zero runtime dependencies.
 
 ```sh
-bun install
-bun run build
-npm i -g .
+npm i -g @cognelis/langfuse-cli
 langfuse-cli --version
 ```
 
-The binary is named `langfuse-cli`.
+Or from a checkout:
+
+```sh
+bun install
+bun run build
+npm i -g .
+```
+
+The binary is named `langfuse-cli`. The package is scoped because the bare
+`langfuse-cli` name belongs to [upstream](https://github.com/langfuse/langfuse-cli).
 
 ### Single-file executable
 

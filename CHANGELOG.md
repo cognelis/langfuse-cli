@@ -5,8 +5,8 @@ User-visible changes are recorded here. Versions follow the policy in
 
 This is a fork of [`langfuse/langfuse-cli`](https://github.com/langfuse/langfuse-cli)
 maintained as a companion to `signoz-cli`; it shares that project's operational
-contract and versioning policy. Version 2.0.0 is the first release of the fork
-and diverges from upstream 1.2.0.
+contract and versioning policy. It is published as `@cognelis/langfuse-cli`;
+version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
@@ -49,6 +49,8 @@ system and its 593-case conformance suite are inherited unchanged.
 
 ### Changed
 
+- **The package is published as `@cognelis/langfuse-cli`.** The unscoped name
+  belongs to upstream. Installing it provides the same `langfuse-cli` binary.
 - **The executable is now `langfuse-cli`, not `langfuse`**, matching the name
   used by the companion CLIs.
 - Connections resolve in a defined order: `--host`, then `--profile`, then
@@ -94,6 +96,7 @@ system and its 593-case conformance suite are inherited unchanged.
 
 | Before | Now |
 | --- | --- |
+| `npm i -g langfuse-cli` | `npm i -g @cognelis/langfuse-cli` |
 | `langfuse api ...` | `langfuse-cli api ...` |
 | `--secret-key sk-...` | `langfuse-cli auth login` (masked or `--secret-key-stdin`), or `LANGFUSE_SECRET_KEY` |
 | `--output response.json` | `--out-file response.json` |

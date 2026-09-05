@@ -123,17 +123,37 @@ bun run conformance:all
 bun run compile          # optional: verify the standalone executable
 ```
 
-## This fork does not publish to npm
+## Publishing
 
-`package.json` carries `"private": true` and `release.yml` was removed. The
-package name `langfuse-cli` belongs to upstream; publishing from this fork would
-either fail or, worse, contend for that name. Install locally instead:
+The fork publishes as **`@cognelis/langfuse-cli`**. The bare `langfuse-cli` name
+belongs to upstream, and `release:check` fails closed if the name ever drifts
+back to it or if the scope's default restricted access is left in place.
+
+The binary is `langfuse-cli` either way; the scope only namespaces the package.
 
 ```sh
-bun run build && npm i -g .
-# or a standalone binary:
-bun run compile ~/bin/langfuse-cli
+npm login                    # once per machine
+bun run release:check        # version, manifests, changelog
+npm publish                  # runs release:check and build via prepublishOnly
 ```
 
-Agents consume the CLI through `skills install` or the plugin marketplace, not
-through a registry.
+`prepublishOnly` rebuilds `dist/` first, so the published tarball always carries
+a fresh CLI, the six API contracts, and the bundled Skill. `files` names those
+paths explicitly rather than all of `dist/`, because `bun run compile` writes a
+~60 MB executable there that must never reach the registry.
+
+Verify the tarball before publishing anything:
+
+```sh
+npm pack --dry-run           # expect ~28 files, ~170 kB
+```
+
+Installing the published package:
+
+```sh
+npm i -g @cognelis/langfuse-cli
+langfuse-cli --version
+```
+
+The standalone executable from `bun run compile` is not distributed through npm;
+build it locally when a machine has no Node installation.

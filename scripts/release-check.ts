@@ -5,8 +5,10 @@
 // stops. It does not commit, tag, push, publish, or install anything — the
 // release decision stays with a human.
 //
-// This fork does not publish to npm; package.json is marked private precisely
-// so a stray `npm publish` cannot reach the upstream package name.
+// This fork publishes under its own scope. The name check is the guard that
+// matters: the unscoped `langfuse-cli` belongs to upstream, and a scoped
+// package defaults to restricted access, which would publish something meant
+// to be installable as private.
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -45,9 +47,29 @@ if (!SEMVER.test(version)) {
     `package.json version "${version}" is not a plain MAJOR.MINOR.PATCH version`,
   );
 }
-if (manifest.private !== true) {
+const name = String(manifest.name ?? "");
+if (!name.startsWith("@cognelis/")) {
   problems.push(
-    'package.json must keep "private": true so this fork cannot publish to the upstream package name',
+    `package.json name "${name}" must stay under the @cognelis scope; the bare "langfuse-cli" belongs to upstream`,
+  );
+}
+if (manifest.private !== undefined) {
+  problems.push(
+    'package.json must not set "private" now that the fork publishes under its own scope',
+  );
+}
+const access = (manifest.publishConfig as Record<string, unknown> | undefined)?.access;
+if (access !== "public") {
+  problems.push(
+    'package.json must set "publishConfig.access" to "public"; a scoped package is otherwise published as restricted',
+  );
+}
+const binaries = Object.keys(
+  (manifest.bin as Record<string, string> | undefined) ?? {},
+);
+if (binaries.length !== 1 || binaries[0] !== "langfuse-cli") {
+  problems.push(
+    `package.json must expose exactly one binary named langfuse-cli, found ${binaries.join(", ") || "none"}`,
   );
 }
 
