@@ -82,6 +82,13 @@ the product version.
 - The zsh completion function must be named `_langfuse-cli` (hyphen), matching
   the file name zsh resolves it by. An underscored name loads silently and
   never fires.
+- **Do not parse `npm pack --json` in CI.** Its envelope changed between npm 10
+  (an array) and npm 12 (an object keyed by package name), and CI installs
+  `npm@latest` for trusted publishing while this machine has npm 10 — so a
+  locally verified script can still break the release. The tarball check reads
+  `tar -tzf` instead. When verifying a workflow step locally, run it under
+  `bash -c`, not the interactive zsh, or `set -euo pipefail` and globbing
+  behave differently.
 
 ## Layout
 

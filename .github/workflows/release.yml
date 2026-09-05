@@ -80,37 +80,43 @@ jobs:
         run: bun run build
 
       # `npm publish` does not verify tarball completeness; a files-array
-      # mistake would ship a package whose CLI cannot start.
+      # mistake would ship a package whose CLI cannot start. The contents are
+      # read with tar rather than `npm pack --json`, whose envelope changed
+      # shape between npm 10 and npm 12.
       - name: Verify the tarball carries the CLI, contracts and skill
         run: |
-          npm pack --dry-run --json > /tmp/pack.json
-          node -e '
-            const [pack] = require("/tmp/pack.json");
-            const names = pack.files.map((file) => file.path);
-            const required = [
-              "bin/langfuse-cli.mjs",
-              "dist/cli.js",
-              "dist/contracts/catalog.json",
-              "dist/skills/langfuse/SKILL.md",
-            ];
-            const missing = required.filter((path) => !names.includes(path));
-            if (missing.length) {
-              console.error(`::error::tarball is missing ${missing.join(", ")}`);
-              process.exit(1);
-            }
-            const contracts = names.filter((p) => p.startsWith("dist/contracts/")).length;
-            const references = names.filter((p) => p.includes("/references/")).length;
-            if (contracts < 2 || references < 1) {
-              console.error("::error::tarball carries no API contracts or skill references");
-              process.exit(1);
-            }
-            // The compiled standalone executable must never reach the registry.
-            if (names.includes("dist/langfuse-cli")) {
-              console.error("::error::tarball contains the standalone executable");
-              process.exit(1);
-            }
-            console.log(`tarball ok: ${names.length} files, ${contracts} contracts, ${references} skill references`);
-          '
+          set -euo pipefail
+          npm pack --silent
+          tarball=$(ls -1 ./*.tgz | head -1)
+          tar -tzf "$tarball" | sed 's|^package/||' | sort > /tmp/tarball-files.txt
+          rm -f "$tarball"
+
+          failed=0
+          for required in \
+            bin/langfuse-cli.mjs \
+            dist/cli.js \
+            dist/contracts/catalog.json \
+            dist/skills/langfuse/SKILL.md
+          do
+            if ! grep -qx "$required" /tmp/tarball-files.txt; then
+              echo "::error::tarball is missing $required"
+              failed=1
+            fi
+          done
+
+          contracts=$(grep -c '^dist/contracts/.*\.json$' /tmp/tarball-files.txt || true)
+          references=$(grep -c '/references/.*\.md$' /tmp/tarball-files.txt || true)
+          [ "$contracts" -ge 2 ] || { echo "::error::tarball carries $contracts API contracts"; failed=1; }
+          [ "$references" -ge 1 ] || { echo "::error::tarball carries no skill references"; failed=1; }
+
+          # The compiled standalone executable must never reach the registry.
+          if grep -qx 'dist/langfuse-cli' /tmp/tarball-files.txt; then
+            echo "::error::tarball contains the standalone executable"
+            failed=1
+          fi
+
+          [ "$failed" -eq 0 ] || exit 1
+          echo "tarball ok: $(wc -l < /tmp/tarball-files.txt) files, $contracts contracts, $references skill references"
 
       - name: Publish
         run: npm publish --ignore-scripts
