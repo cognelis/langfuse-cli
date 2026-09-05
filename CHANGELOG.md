@@ -10,6 +10,13 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Releases now publish from CI on a `vX.Y.Z` tag, through npm trusted
+  publishing (OIDC). No npm token exists, and no one-time password is involved:
+  `npm publish` only completes a passkey challenge inside a real terminal, so a
+  local publish cannot be automated.
+
 ## [2.0.0] - 2026-09-06
 
 Credentials, output, and agent-skill delivery were reworked to match the

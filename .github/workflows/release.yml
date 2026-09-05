@@ -1,0 +1,116 @@
+---
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+#
+# Publishes @cognelis/langfuse-cli when a `v*` tag is pushed.
+#
+# Publishing uses npm trusted publishing (OIDC): no token exists anywhere, and
+# no one-time password is involved. That is deliberate — `npm publish` from a
+# workstation needs a real terminal to complete the passkey challenge, which
+# makes releasing impossible to automate locally.
+#
+# The tag is the release trigger, so the gates below run before anything is
+# published and the job fails closed if the tag and package.json disagree.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Verify and publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC credential for npm trusted publishing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v5.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or newer; the bundled npm may be older.
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Verify the tag matches package.json
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          DECLARED="v$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$DECLARED" ]; then
+            echo "::error::tag $TAG does not match package.json version $DECLARED"
+            exit 1
+          fi
+
+      - name: Verify version consistency and changelog
+        run: bun run release:check
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run tests
+        run: bun test
+
+      - name: Fake-call every endpoint in every API snapshot
+        run: bun run conformance:all
+
+      - name: Build the published artifacts
+        run: bun run build
+
+      # `npm publish` does not verify tarball completeness; a files-array
+      # mistake would ship a package whose CLI cannot start.
+      - name: Verify the tarball carries the CLI, contracts and skill
+        run: |
+          npm pack --dry-run --json > /tmp/pack.json
+          node -e '
+            const [pack] = require("/tmp/pack.json");
+            const names = pack.files.map((file) => file.path);
+            const required = [
+              "bin/langfuse-cli.mjs",
+              "dist/cli.js",
+              "dist/contracts/catalog.json",
+              "dist/skills/langfuse/SKILL.md",
+            ];
+            const missing = required.filter((path) => !names.includes(path));
+            if (missing.length) {
+              console.error(`::error::tarball is missing ${missing.join(", ")}`);
+              process.exit(1);
+            }
+            const contracts = names.filter((p) => p.startsWith("dist/contracts/")).length;
+            const references = names.filter((p) => p.includes("/references/")).length;
+            if (contracts < 2 || references < 1) {
+              console.error("::error::tarball carries no API contracts or skill references");
+              process.exit(1);
+            }
+            // The compiled standalone executable must never reach the registry.
+            if (names.includes("dist/langfuse-cli")) {
+              console.error("::error::tarball contains the standalone executable");
+              process.exit(1);
+            }
+            console.log(`tarball ok: ${names.length} files, ${contracts} contracts, ${references} skill references`);
+          '
+
+      - name: Publish
+        run: npm publish --ignore-scripts

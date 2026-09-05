@@ -127,32 +127,57 @@ bun run compile          # optional: verify the standalone executable
 
 The fork publishes as **`@cognelis/langfuse-cli`**. The bare `langfuse-cli` name
 belongs to upstream, and `release:check` fails closed if the name ever drifts
-back to it or if the scope's default restricted access is left in place.
+back to it, if `private` reappears, or if the scope's default restricted access
+is left in place. The binary is `langfuse-cli` either way; the scope only
+namespaces the package.
 
-The binary is `langfuse-cli` either way; the scope only namespaces the package.
+### Releasing
+
+Pushing a `vX.Y.Z` tag publishes. Nothing else does.
 
 ```sh
-npm login                    # once per machine
-bun run release:check        # version, manifests, changelog
-npm publish                  # runs release:check and build via prepublishOnly
+# CHANGELOG.md: move Unreleased into a dated section for the new version
+# bump the version in all four manifests
+
+bun run release:check
+bun run typecheck && bun test && bun run conformance:all
+
+git commit -m "chore: release X.Y.Z"
+git push origin main
+git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
 ```
 
-`prepublishOnly` rebuilds `dist/` first, so the published tarball always carries
-a fresh CLI, the six API contracts, and the bundled Skill. `files` names those
-paths explicitly rather than all of `dist/`, because `bun run compile` writes a
-~60 MB executable there that must never reach the registry.
+[`release.yml`](.github/workflows/release.yml) then re-runs every gate, verifies
+the tag matches `package.json`, verifies the packed tarball actually contains
+the CLI, the API contracts and the Skill — and that it does *not* contain the
+~60 MB standalone executable — and publishes through **npm trusted publishing
+(OIDC)**. No npm token exists anywhere.
 
-Verify the tarball before publishing anything:
+### Why publishing is not done locally
+
+The npm account uses passkey 2FA. `npm publish` only falls back to the browser
+WebAuthn challenge when it detects a real terminal; from any non-interactive
+shell it fails with `EOTP` instead. Automating the release therefore requires
+CI, which authenticates with a short-lived OIDC credential rather than a
+password or a token.
+
+A local `npm publish` still works from an interactive terminal if CI is
+unavailable, but it is the exception, not the path.
+
+### One-time setup on npmjs.com
+
+Trusted publishing has to be configured once per package:
+
+**Package → Settings → Trusted Publisher → GitHub Actions**, with organization
+`cognelis`, repository `langfuse-cli`, and workflow filename `release.yml`.
+Leave the environment field empty unless a matching environment is added to the
+workflow.
+
+### Verifying a release
 
 ```sh
-npm pack --dry-run           # expect ~28 files, ~170 kB
-```
-
-Installing the published package:
-
-```sh
-npm i -g @cognelis/langfuse-cli
-langfuse-cli --version
+npm view @cognelis/langfuse-cli
+npm i -g @cognelis/langfuse-cli && langfuse-cli doctor
 ```
 
 The standalone executable from `bun run compile` is not distributed through npm;
