@@ -16,6 +16,8 @@ import {
   writeResult,
 } from "./cli";
 import { createApiClient, prepareRequest } from "./client";
+import { Config } from "./config";
+import { fileStore } from "./credentials";
 import { CliError } from "./errors";
 import { compileApiContract } from "./contracts/compiler";
 import type { ApiOperation } from "./contracts/types";
@@ -50,36 +52,60 @@ async function captureOutput(
   };
 }
 
-describe("langfuse get-skill", () => {
-  test("prints manual download instructions when github is blocked", async () => {
-    const originalFetch = globalThis.fetch;
+describe("langfuse-cli get-skill", () => {
+  test("reports that skills install replaced it", async () => {
     const originalExitCode = process.exitCode;
-
-    globalThis.fetch = (async (): Promise<Response> => {
-      throw new Error("network blocked");
-    }) as typeof fetch;
-
     process.exitCode = undefined;
 
     try {
       const output = await captureOutput(() =>
-        run(["node", "langfuse", "get-skill"]),
+        run(["node", "langfuse-cli", "get-skill"]),
       );
 
       expect(output.stdout).toBe("");
-      expect(output.stderr).toContain(
-        "Failed to fetch the latest Langfuse skill from GitHub.",
-      );
-      expect(output.stderr).toContain(
-        "This environment may block direct GitHub access.",
-      );
-      expect(output.stderr).toContain(
-        "https://raw.githubusercontent.com/langfuse/skills/main/skills/langfuse/SKILL.md",
-      );
-      expect(output.stderr).toContain("network blocked");
-      expect(process.exitCode).toBe(4);
+      expect(output.stderr).toContain("langfuse-cli skills install");
+      expect(output.stderr).toContain("references/*.md");
+      expect(process.exitCode).toBe(2);
     } finally {
-      globalThis.fetch = originalFetch;
+      process.exitCode = originalExitCode ?? 0;
+    }
+  });
+});
+
+describe("removed flags", () => {
+  test("--secret-key fails with the secure replacement", async () => {
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    try {
+      const output = await captureOutput(() =>
+        run(["node", "langfuse-cli", "--secret-key", "sk-lf-x", "api", "help"]),
+      );
+
+      expect(output.stderr).toContain("shell history");
+      expect(output.stderr).toContain("auth login");
+      expect(output.stderr).not.toContain("sk-lf-x");
+      expect(process.exitCode).toBe(2);
+    } finally {
+      process.exitCode = originalExitCode ?? 0;
+    }
+  });
+
+  test("--output selects a format and rejects anything else", async () => {
+    const originalExitCode = process.exitCode;
+    process.exitCode = undefined;
+
+    try {
+      // It used to name a file; that role moved to --out-file, and --output now
+      // chooses the format the way signoz-cli does.
+      const output = await captureOutput(() =>
+        run(["node", "langfuse-cli", "--output", "x.json", "api", "help"]),
+      );
+
+      expect(output.stderr).toContain("Unknown --output value");
+      expect(output.stderr).toContain("auto, table, json or raw");
+      expect(process.exitCode).toBe(2);
+    } finally {
       process.exitCode = originalExitCode ?? 0;
     }
   });
@@ -918,10 +944,13 @@ describe("result output", () => {
         {
           host: "http://localhost",
           timeoutMs: 1_000,
-          json: false,
+          outputMode: "default",
           curl: false,
           showSecrets: false,
-          output,
+          outFile: output,
+          configFile: Config.empty("/dev/null"),
+          store: fileStore(join(directory, "credentials.json")),
+          environment: {},
         },
       );
 

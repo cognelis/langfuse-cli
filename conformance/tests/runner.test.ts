@@ -55,7 +55,7 @@ const response = await fetch(
   \`\${value("--host")}/widgets/\${encodeURIComponent(id)}?limit=\${value("--limit")}\`,
   { headers: { "user-agent": ${JSON.stringify(`langfuse-cli/${packageJson.version}`)} } },
 );
-console.log(JSON.stringify({ status: response.status, body: await response.json() }));
+console.log(JSON.stringify({ schemaVersion: "1", command: "api.widgets.get", data: await response.json(), meta: { status: response.status } }));
 process.exit(response.ok ? 0 : 1);
 `,
     );

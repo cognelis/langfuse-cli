@@ -1,4 +1,7 @@
-import { invocationArgs } from "./invocation";
+import {
+  CONFORMANCE_SECRET_KEY,
+  invocationArgs,
+} from "./invocation";
 import { CaptureServer, requestDiff, sameJson } from "./capture";
 import { REPOSITORY_ROOT } from "./catalog";
 import type { ConformanceVector, Manifest } from "./types";
@@ -38,9 +41,11 @@ async function spawn(
       env: {
         ...process.env,
         LANGFUSE_PUBLIC_KEY: undefined,
-        LANGFUSE_SECRET_KEY: undefined,
+        LANGFUSE_SECRET_KEY: CONFORMANCE_SECRET_KEY,
         LANGFUSE_HOST: undefined,
         LANGFUSE_BASE_URL: undefined,
+        // Never touch the developer's real profiles or keyring.
+        LANGFUSE_CREDENTIAL_STORE: "file",
       },
       stdout: "pipe",
       stderr: "pipe",
@@ -124,19 +129,26 @@ export async function runConformance(options: RunOptions): Promise<CaseResult[]>
         }
       }
       if (!operation?.deprecated && execution.exitCode === 0) {
+        // --json emits the versioned envelope: status lives in meta, the
+        // upstream payload in data.
         const output = parseJson(execution.stdout);
-        if (output?.status !== vector.response.status) {
+        if (output?.schemaVersion !== "1") {
           failures.push(
-            `response: expected status ${vector.response.status}, got ${output?.status}`,
+            `response: expected envelope schemaVersion 1, got ${JSON.stringify(output?.schemaVersion)}`,
           );
         }
-        const actualBody = output?.body ?? null;
+        if (output?.meta?.status !== vector.response.status) {
+          failures.push(
+            `response: expected status ${vector.response.status}, got ${output?.meta?.status}`,
+          );
+        }
+        const actualBody = output?.data ?? null;
         const bodyMatches = vector.response.sample === undefined
           ? actualBody === null || actualBody === ""
           : sameJson(actualBody, vector.response.sample);
         if (!bodyMatches) {
           failures.push(
-            `response body: expected ${JSON.stringify(vector.response.sample ?? null)}, got ${JSON.stringify(output?.body ?? null)}`,
+            `response body: expected ${JSON.stringify(vector.response.sample ?? null)}, got ${JSON.stringify(actualBody)}`,
           );
         }
       }

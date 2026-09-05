@@ -61,90 +61,79 @@ applied by the contract compiler, never hardcoded in the runtime: extra
 parameter flag spellings (`parameterFlagAliases`, e.g. `--prompt-version`),
 body-field flag renames for collisions (`bodyFieldFlags`, e.g.
 `llmConnections_upsert.secretKey` -> `--provider-secret-key` because
-`--secret-key` is the global auth flag), and per-version command overrides.
+`--secret-key` is a removed name that argument parsing intercepts to report its
+replacement), and per-version command overrides.
 A snapshot that lacks the referenced parameter or field skips the entry, but
 an entry applied in no snapshot at all fails the build, tests, and
 `goldens:update`, so stale overrides cannot rot silently.
 
-## Releases
+## Version policy
 
-Push to `main` freely; nothing publishes on push. Releases are a three-step
-flow with a human gate in the middle:
+`package.json`'s `version` is the canonical product version. The three plugin
+manifests — `.claude-plugin/marketplace.json` (as `metadata.version`) and both
+`plugins/langfuse-cli/.*-plugin/plugin.json` — must carry the same version.
 
-```sh
-bun run release
-```
+Use plain `MAJOR.MINOR.PATCH`:
 
-1. **Cut** (local, interactive): verifies you are on `main`, in sync with
-   origin, and `gh` is authenticated; checks CI status on HEAD (warns and
-   asks when it cannot be confirmed green — note that a commit whose checks
-   have not started yet passes this silently, so wait for CI after pushing);
-   asks for the next version (patch/minor/major, or alpha/beta/rc
-   prereleases — other identifiers and build metadata are rejected, matching
-   the publish workflow's policy); verifies the version is not on npm and the
-   tag is free; runs typecheck, both test suites, and the full conformance
-   build; then pushes a `chore(release): vX.Y.Z` commit plus the `vX.Y.Z` tag
-   and opens a **draft GitHub release** with generated notes.
-2. **Publish the GitHub release**: edit the notes on GitHub and click
-   Publish. This is the release decision — nothing reaches npm before it.
-3. **npm publish** (automatic): publishing the release triggers
-   [`release.yml`](.github/workflows/release.yml), which re-verifies the
-   release against the same policy module the cut script uses
-   (`scripts/release-guard.ts`: tag == package.json version, commit on main,
-   prerelease consistency, identifier whitelist, and `latest` never moving to
-   an older version), verifies the packed tarball contents, re-runs all
-   gates, and publishes via **npm trusted publishing (OIDC)** with provenance
-   attestations. No npm token exists anywhere.
+| Change | Version increment |
+| --- | --- |
+| Compatible bug fix, security fix, or bundled Skill correction | Patch |
+| New user-visible capability | Minor |
+| Incompatible CLI, config, or JSON output change | Major, with migration notes |
+| New bundled API snapshot that only adds commands | Minor |
+| Internal refactor, tests, or documentation with no shipped behavior change | Record under Unreleased when useful; no standalone release is required |
 
-npm dist-tags derive from the version: stable → `latest`, `-alpha.N` →
-`alpha`, `-beta.N` → `beta`, `-rc.N` → `rc`. Prerelease versions must be
-marked "pre-release" on the GitHub release (the draft is created that way);
-the workflow fails closed on any mismatch. Graduating `1.1.0-rc.1` → `1.1.0`
-is just another `bun run release` run choosing "graduate".
+Choose the highest required increment in a batch, and bump once for the
+completed batch rather than for each intermediate edit.
 
-To test the cut flow without pushing anything:
+The JSON envelope's `schemaVersion` is a **separate compatibility contract**.
+Do not change it just because the product version changes; describe breaking
+behavior and the required caller changes in the changelog instead.
 
-```sh
-bun run release -- --dry-run
-```
+## Record changes as you work
 
-If testing local changes to the release script itself, add `--allow-dirty`.
-Never use `--allow-dirty` for a real release.
+Add concise, user-facing entries under `CHANGELOG.md`'s `Unreleased` section
+using `Added`, `Changed`, `Fixed`, `Removed`, or `Security`. Include migration
+notes whenever commands, authentication, defaults, or output contracts change.
+Do not rewrite a published entry to hide a later change.
 
-### Escape hatch: publishing without GitHub Actions
+Keep CLI behavior, README examples, and the bundled Skill at
+`plugins/langfuse-cli/skills/langfuse/SKILL.md` in sync. The Skill is copied
+into `dist/` at build time and embedded in the compiled executable, so rebuild
+before updating installed copies with `skills install`.
 
-Only when Actions is unavailable, publish directly from a machine:
+## Cutting a version
 
 ```sh
-bun run release -- --publish-local
+bun run release:check
 ```
 
-This runs the same gates plus `npm pack --dry-run` and an explicit publish
-confirmation, and requires interactive npm authentication (with OTP if the
-package disallows tokens). It does not commit or tag; do that manually after.
-`--tag <dist-tag>` overrides the dist-tag in this mode only; the CI path
-always derives it from the version.
+It verifies that the version is a plain semver triple, that `private` is still
+set, that all four manifests agree, and that `CHANGELOG.md` records the version
+with a date and lists releases newest-first. It rejects duplicates and
+out-of-order entries. **It does not commit, tag, push, publish, or install
+anything** — that decision stays with a human.
 
-### One-time npm/GitHub configuration (required)
+Run the full gates before finalizing:
 
-On npmjs.com → `langfuse-cli` → Settings:
+```sh
+bun run typecheck
+bun test
+bun run conformance:all
+bun run compile          # optional: verify the standalone executable
+```
 
-1. **Trusted Publisher** → GitHub: owner `langfuse`, repository `langfuse-cli`,
-   workflow filename `release.yml`, environment `npm-publish`.
-2. **Publishing access**: "Require two-factor authentication and disallow
-   tokens" — CI publishes via the trusted publisher, humans can still
-   `--publish-local` interactively with OTP, and no token can ever publish.
+## This fork does not publish to npm
 
-In the GitHub repo, environment protection is **required, not optional**:
-`release` events execute the workflow file **as of the tagged commit**, so
-without protection anyone with push access could tag a commit carrying a
-modified `release.yml` and publish arbitrary code through the trusted
-publisher. The environment protection rules are the platform-level gate that
-closes this:
+`package.json` carries `"private": true` and `release.yml` was removed. The
+package name `langfuse-cli` belongs to upstream; publishing from this fork would
+either fail or, worse, contend for that name. Install locally instead:
 
-1. Settings → Environments → create `npm-publish`.
-2. Add **required reviewers** (release approvers).
-3. Set **deployment branches and tags** to "Selected branches and tags" and
-   allow only tags matching `v*`.
-4. Additionally, add a repository **ruleset restricting who can create `v*`
-   tags** (Settings → Rules → Rulesets) to maintainers.
+```sh
+bun run build && npm i -g .
+# or a standalone binary:
+bun run compile ~/bin/langfuse-cli
+```
+
+Agents consume the CLI through `skills install` or the plugin marketplace, not
+through a registry.

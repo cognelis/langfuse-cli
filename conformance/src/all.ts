@@ -19,7 +19,7 @@ for (const entry of catalog.versions) {
   const results = await runConformance({
     manifest: corpus.compiled.manifest,
     vectors: corpus.vectors,
-    command: ["bun", "bin/langfuse.mjs", "--api-version", entry.version],
+    command: ["bun", "bin/langfuse-cli.mjs", "--api-version", entry.version],
     quiet: true,
   });
   const versionPassed = results.filter((result) => result.passed).length;

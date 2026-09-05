@@ -1,0 +1,36 @@
+{
+  "name": "langfuse-cli",
+  "version": "2.0.0",
+  "description": "Use the Langfuse CLI safely in shell, CI, and JSON automation workflows.",
+  "author": {
+    "name": "langfuse-cli contributors"
+  },
+  "homepage": "https://github.com/cognelis/langfuse-cli",
+  "repository": "https://github.com/cognelis/langfuse-cli",
+  "license": "MIT",
+  "keywords": [
+    "langfuse",
+    "llm",
+    "observability",
+    "tracing",
+    "prompts",
+    "cli",
+    "ci"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Langfuse CLI",
+    "shortDescription": "Safe Langfuse CLI workflows for shell and CI.",
+    "longDescription": "Guides Codex to use the langfuse binary with stable JSON envelopes, profile-based authentication that keeps the secret key in the operating-system credential store, and the bundled multi-version API contract.",
+    "developerName": "langfuse-cli contributors",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read"
+    ],
+    "defaultPrompt": [
+      "Use the Langfuse CLI to list traces from the last hour as JSON.",
+      "Add a secret-safe Langfuse prompt-sync step to this CI pipeline."
+    ],
+    "brandColor": "#0A60B6"
+  }
+}

@@ -80,7 +80,7 @@ The required check name is **Test and verify OpenAPI conformance**. The interact
 bun run conformance:run -- \
   --version 3.225.3 \
   --operation prompts_create \
-  -- bun bin/langfuse.mjs --api-version 3.225.3
+  -- bun bin/langfuse-cli.mjs --api-version 3.225.3
 ```
 
 Useful filters:

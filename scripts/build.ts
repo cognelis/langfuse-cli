@@ -1,5 +1,5 @@
-import { mkdir, rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readdir, rm } from "node:fs/promises";
+import { dirname, relative, resolve } from "node:path";
 
 import { loadCatalog, readVerifiedSpec } from "../conformance/src/catalog";
 import { goldenSurfaceDiff } from "../conformance/src/goldens";
@@ -54,6 +54,33 @@ await Bun.write(
   `${JSON.stringify(contractCatalog)}\n`,
 );
 
+// The agent skill ships inside the package so `skills install` needs no network
+// access. Copying the whole directory is what keeps every references/*.md the
+// SKILL.md links to resolvable once installed.
+const skillSource = resolve(root, "plugins/langfuse-cli/skills/langfuse");
+const skillTarget = resolve(dist, "skills/langfuse");
+const skillEntries = await readdir(skillSource, {
+  recursive: true,
+  withFileTypes: true,
+});
+let skillFileCount = 0;
+for (const entry of skillEntries) {
+  if (!entry.isFile()) continue;
+  const parentPath =
+    (entry as { parentPath?: string; path?: string }).parentPath ??
+    (entry as { path?: string }).path ??
+    skillSource;
+  const absolute = resolve(parentPath, entry.name);
+  const target = resolve(skillTarget, relative(skillSource, absolute));
+  await mkdir(dirname(target), { recursive: true });
+  await Bun.write(target, Bun.file(absolute));
+  skillFileCount += 1;
+}
+if (skillFileCount === 0) {
+  process.stderr.write(`No skill files found under ${skillSource}\n`);
+  process.exit(1);
+}
+
 const result = await Bun.build({
   entrypoints: [resolve(root, "src/cli.ts")],
   outdir: dist,
@@ -67,5 +94,5 @@ if (!result.success) {
 }
 
 process.stdout.write(
-  `Built native Bun CLI with ${sourceCatalog.versions.length} contracts and ${totalOperations} operations\n`,
+  `Built native Bun CLI with ${sourceCatalog.versions.length} contracts, ${totalOperations} operations and ${skillFileCount} skill files\n`,
 );

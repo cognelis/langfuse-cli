@@ -9,6 +9,42 @@ import type {
 
 const CATALOG_URL = new URL("./contracts/catalog.json", import.meta.url);
 
+/**
+ * Raw contract sources, keyed by version, with "catalog" for the index.
+ *
+ * A single-file executable has no directory to read from, so its entry point
+ * injects the bundled contracts here before dispatching. With nothing injected
+ * the loader reads them from disk beside the built CLI, which is how the npm
+ * installation works — that path is unchanged.
+ *
+ * Values stay as unparsed strings: holding 750 KB of contracts as text until a
+ * command actually needs one keeps startup flat.
+ */
+let embeddedContracts: Readonly<Record<string, string>> | undefined;
+
+export function setEmbeddedContracts(
+  contracts: Readonly<Record<string, string>>,
+): void {
+  embeddedContracts = contracts;
+}
+
+async function readContractSource(
+  key: string,
+  url: URL,
+  label: string,
+): Promise<string> {
+  const embedded = embeddedContracts?.[key];
+  if (embedded !== undefined) return embedded;
+  try {
+    return await readFile(url, "utf8");
+  } catch (error) {
+    throw new CliError(
+      `Cannot read the bundled ${label}: ${error instanceof Error ? error.message : String(error)}`,
+      EXIT_LOCAL,
+    );
+  }
+}
+
 function parseVersion(version: string): [number, number, number] | undefined {
   const match = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
   if (!match) return undefined;
@@ -41,7 +77,7 @@ function latestMajorEntry(
 
 export async function loadContractCatalog(): Promise<ApiContractCatalog> {
   const catalog = JSON.parse(
-    await readFile(CATALOG_URL, "utf8"),
+    await readContractSource("catalog", CATALOG_URL, "API contract catalog"),
   ) as ApiContractCatalog;
   if (catalog.schemaVersion !== 1 || !Array.isArray(catalog.versions)) {
     throw new CliError("Invalid bundled API contract catalog", EXIT_LOCAL);
@@ -142,7 +178,9 @@ export async function resolveContractVersion(params: {
 
 export async function loadApiContract(version: string): Promise<ApiContract> {
   const url = new URL(`./contracts/${encodeURIComponent(version)}.json`, import.meta.url);
-  const contract = JSON.parse(await readFile(url, "utf8")) as ApiContract;
+  const contract = JSON.parse(
+    await readContractSource(version, url, `API contract for ${version}`),
+  ) as ApiContract;
   if (contract.schemaVersion !== 1 || contract.apiVersion !== version) {
     throw new CliError(`Invalid bundled API contract for ${version}`, EXIT_LOCAL);
   }

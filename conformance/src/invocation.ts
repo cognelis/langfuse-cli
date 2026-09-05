@@ -7,7 +7,10 @@ import type {
 } from "./types";
 
 const PUBLIC_KEY = "conformance-public-key";
-const SECRET_KEY = "conformance-secret-key";
+// The CLI has no --secret-key flag, so the runner injects this through the
+// environment, which is the supported credential path for an explicit --host.
+export const CONFORMANCE_PUBLIC_KEY = PUBLIC_KEY;
+export const CONFORMANCE_SECRET_KEY = "conformance-secret-key";
 
 function optionValue(value: JsonValue): string {
   return typeof value === "string" ? value : JSON.stringify(value);
@@ -59,8 +62,6 @@ export function invocationArgs(params: {
     host,
     "--public-key",
     PUBLIC_KEY,
-    "--secret-key",
-    SECRET_KEY,
     "api",
     vector.command.resource,
     vector.command.action,

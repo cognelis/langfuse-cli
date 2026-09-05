@@ -310,7 +310,7 @@ async function addVersion(
           version,
           "--",
           "bun",
-          "bin/langfuse.mjs",
+          "bin/langfuse-cli.mjs",
           "--api-version",
           version,
         ],

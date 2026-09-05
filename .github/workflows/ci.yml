@@ -48,4 +48,18 @@ jobs:
         run: bun run conformance:all
 
       - name: Smoke-test built CLI
-        run: bun bin/langfuse.mjs --help
+        run: bun bin/langfuse-cli.mjs --help
+
+      - name: Verify version consistency and changelog
+        run: bun run release:check
+
+      - name: Smoke-test completion callback
+        run: |
+          bun bin/langfuse-cli.mjs completion zsh > /dev/null
+          bun bin/langfuse-cli.mjs __complete api prompts | grep -q '^list'
+
+      - name: Build and smoke-test the standalone executable
+        run: |
+          bun run compile
+          ./dist/langfuse-cli --version
+          ./dist/langfuse-cli api help > /dev/null

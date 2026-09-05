@@ -292,7 +292,7 @@ paths:
   });
 
   test("rejects an alias colliding with a reserved or global flag", () => {
-    for (const flag of ["json", "body-json", "output"]) {
+    for (const flag of ["json", "body-json", "out-file", "profile"]) {
       expect(() =>
         compileApiContract(
           SOURCE,

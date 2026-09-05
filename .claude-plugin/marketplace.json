@@ -1,0 +1,17 @@
+{
+  "name": "langfuse-cli",
+  "owner": {
+    "name": "langfuse-cli contributors"
+  },
+  "metadata": {
+    "description": "Langfuse CLI skills for Claude Code",
+    "version": "2.0.0"
+  },
+  "plugins": [
+    {
+      "name": "langfuse-cli",
+      "description": "Use the Langfuse CLI safely in shell, CI, and JSON automation workflows.",
+      "source": "./plugins/langfuse-cli"
+    }
+  ]
+}

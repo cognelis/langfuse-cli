@@ -5,13 +5,28 @@ import packageJson from "../package.json";
 
 import { createApiClient, renderCurl } from "./client";
 import {
+  Config,
+  DEFAULT_HOST,
+  defaultConfigPath,
+  fallbackCredentialPath,
+  resolveCredentials,
+} from "./config";
+import { resolveCredentialStore, type CredentialStore } from "./credentials";
+import {
   CliError,
   EXIT_CONFIG,
   EXIT_HTTP,
   EXIT_LOCAL,
   EXIT_NETWORK,
+  EXIT_USAGE,
 } from "./errors";
-import { GLOBAL_BOOLEAN_FLAG_NAMES, GLOBAL_VALUE_FLAG_NAMES } from "./flags";
+import {
+  GLOBAL_BOOLEAN_FLAG_NAMES,
+  GLOBAL_VALUE_FLAG_NAMES,
+  REMOVED_FLAGS,
+} from "./flags";
+import { renderSuccess, type Meta, type OutputMode } from "./output";
+import { renderTable } from "./table";
 import {
   loadApiContract,
   loadContractCatalog,
@@ -28,12 +43,31 @@ import type {
   JsonValue,
   ValueKind,
 } from "./contracts/types";
+import type { CommandContext } from "./commands/connection";
+import {
+  authCheck,
+  authLogin,
+  authLogout,
+  configPath,
+  configShow,
+  doctor,
+  profileAdd,
+  profileList,
+  profileRemove,
+  profileShow,
+  profileUpdate,
+  profileUse,
+} from "./commands/connection";
+import { init } from "./commands/init";
+import { installSkills, parseSkillTarget } from "./commands/skills";
+import {
+  complete,
+  parseCompletionShell,
+  renderCompletionScript,
+  renderCompletions,
+} from "./commands/completion";
 
-const DEFAULT_HOST = "https://cloud.langfuse.com";
 const DEFAULT_TIMEOUT_MS = 30_000;
-const LANGFUSE_SKILL_URL =
-  "https://raw.githubusercontent.com/langfuse/skills/main/skills/langfuse/SKILL.md";
-const GET_SKILL_FETCH_TIMEOUT_MS = 5_000;
 const VALUE_FLAGS = new Set(GLOBAL_VALUE_FLAG_NAMES.map((name) => `--${name}`));
 const BOOLEAN_FLAGS = new Set(
   GLOBAL_BOOLEAN_FLAG_NAMES.map((name) => `--${name}`),
@@ -46,15 +80,21 @@ interface ParsedGlobals {
 }
 
 interface RuntimeConfig {
-  publicKey?: string;
-  secretKey?: string;
   host: string;
+  profile?: string;
+  publicKey?: string;
   apiVersion?: string;
   timeoutMs: number;
-  json: boolean;
+  outputMode: OutputMode;
   curl: boolean;
   showSecrets: boolean;
-  output?: string;
+  outFile?: string;
+  configFile: Config;
+  store: CredentialStore;
+  environment: { host?: string; publicKey?: string; secretKey?: string };
+  hostFlag?: string;
+  publicKeyFlag?: string;
+  profileFlag?: string;
 }
 
 function flagKey(flag: string): string {
@@ -69,6 +109,12 @@ function extractGlobals(args: string[]): ParsedGlobals {
     const token = args[index];
     const equals = token.indexOf("=");
     const name = equals === -1 ? token : token.slice(0, equals);
+    // A removed option must not fall through and be reinterpreted as an
+    // operation argument; say what replaced it instead.
+    const removed = REMOVED_FLAGS.get(flagKey(name));
+    if (removed && name.startsWith("--")) {
+      throw new CliError(removed, EXIT_USAGE);
+    }
     if (VALUE_FLAGS.has(name)) {
       const value = equals === -1 ? args[index + 1] : token.slice(equals + 1);
       if (value === undefined || (equals === -1 && value.startsWith("--"))) {
@@ -107,6 +153,30 @@ function parseEnv(content: string): Record<string, string> {
   return result;
 }
 
+/**
+ * Chooses the output format.
+ *
+ * `auto` — the default — prints a table on a terminal and the JSON envelope
+ * everywhere else, so a human reads columns while a pipeline receives parseable
+ * output without having to pass a flag.
+ */
+function resolveOutputMode(globals: ParsedGlobals): OutputMode {
+  const requested = globals.values.output;
+  if (requested !== undefined) {
+    if (requested === "json") return "json";
+    if (requested === "raw") return "raw";
+    if (requested === "table") return "table";
+    if (requested !== "auto") {
+      throw new CliError(
+        `Unknown --output value: ${requested} (expected auto, table, json or raw)`,
+      );
+    }
+  }
+  if (globals.booleans.has("raw")) return "raw";
+  if (globals.booleans.has("json")) return "json";
+  return process.stdout.isTTY ? "table" : "json";
+}
+
 async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   let fileEnv: Record<string, string> = {};
   if (globals.values.env) {
@@ -124,59 +194,77 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     throw new CliError("--timeout must be a positive number of milliseconds");
   }
+  if (globals.booleans.has("json") && globals.booleans.has("raw")) {
+    throw new CliError("--json and --raw are mutually exclusive");
+  }
+  const outputMode = resolveOutputMode(globals);
+  const configFilePath = globals.values["config-file"] ?? defaultConfigPath();
+  const configFile = await Config.load(configFilePath);
+  // The file fallback lives beside the config it belongs to, so pointing
+  // --config-file at a scratch directory isolates credentials as well.
+  // LANGFUSE_CREDENTIAL_STORE=file forces that backend, for tests and for hosts
+  // with no reachable keyring.
+  const store = await resolveCredentialStore({
+    fallbackPath: fallbackCredentialPath(configFilePath),
+    forceFile: env.LANGFUSE_CREDENTIAL_STORE === "file",
+  });
+  const environment = {
+    host: env.LANGFUSE_BASE_URL ?? env.LANGFUSE_HOST,
+    publicKey: env.LANGFUSE_PUBLIC_KEY,
+    secretKey: env.LANGFUSE_SECRET_KEY,
+  };
+
+  // The host is resolved eagerly because contract selection needs it, but
+  // credentials are not: `api help` and `api schema` must keep working on a
+  // machine that has never been configured.
+  let host = DEFAULT_HOST;
+  let profile: string | undefined;
+  try {
+    const target = configFile.resolveTarget({
+      explicitHost: globals.values.host,
+      explicitPublicKey: globals.values["public-key"],
+      selectedProfile: globals.values.profile,
+      environmentHost: environment.host,
+    });
+    host = target.host;
+    profile = target.profile;
+  } catch (error) {
+    // An explicitly named profile that does not exist is a real error; an
+    // absent configuration simply falls back to the public cloud host.
+    if (globals.values.profile || globals.values.host) throw error;
+  }
+
   return {
-    publicKey: globals.values["public-key"] ?? env.LANGFUSE_PUBLIC_KEY,
-    secretKey: globals.values["secret-key"] ?? env.LANGFUSE_SECRET_KEY,
-    host: (
-      globals.values.host ??
-      env.LANGFUSE_BASE_URL ??
-      env.LANGFUSE_HOST ??
-      DEFAULT_HOST
-    ).replace(/\/+$/, ""),
+    host,
+    profile,
+    publicKey: globals.values["public-key"] ?? environment.publicKey,
     apiVersion: globals.values["api-version"] ?? env.LANGFUSE_API_VERSION,
     timeoutMs,
-    json: globals.booleans.has("json"),
+    outputMode,
     curl: globals.booleans.has("curl"),
     showSecrets: globals.booleans.has("show-secrets"),
-    output: globals.values.output,
+    outFile: globals.values["out-file"],
+    configFile,
+    store,
+    environment,
+    hostFlag: globals.values.host,
+    publicKeyFlag: globals.values["public-key"],
+    profileFlag: globals.values.profile,
   };
 }
 
-async function fetchText(
-  url: string,
-  label: string,
-  timeoutMs?: number,
-): Promise<string> {
-  const response = await fetch(url, {
-    signal: timeoutMs ? AbortSignal.timeout(timeoutMs) : undefined,
+/**
+ * Resolves the credentials for an actual API call. Kept separate from
+ * `runtimeConfig` so discovery commands never require a configured connection.
+ */
+async function connect(config: RuntimeConfig) {
+  const target = config.configFile.resolveTarget({
+    explicitHost: config.hostFlag,
+    explicitPublicKey: config.publicKeyFlag,
+    selectedProfile: config.profileFlag,
+    environmentHost: config.environment.host,
   });
-  if (!response.ok) {
-    throw new Error(
-      `Failed to fetch ${label} from ${url}: ${response.status} ${response.statusText}`,
-    );
-  }
-  return response.text();
-}
-
-async function getSkill(): Promise<void> {
-  try {
-    process.stdout.write(
-      await fetchText(LANGFUSE_SKILL_URL, "skill", GET_SKILL_FETCH_TIMEOUT_MS),
-    );
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : String(error);
-    process.stderr.write(`Failed to fetch the latest Langfuse skill from GitHub.
-This environment may block direct GitHub access.
-
-Download the skill manually from:
-  ${LANGFUSE_SKILL_URL}
-
-Then add the downloaded SKILL.md to your agent context manually.
-
-Original error: ${reason}
-`);
-    process.exitCode = EXIT_NETWORK;
-  }
+  return resolveCredentials(target, config.environment, config.store);
 }
 
 function printHelp(): void {
@@ -185,27 +273,46 @@ function printHelp(): void {
 Usage: langfuse [options] <command>
 
 Commands:
+  init                    Guided setup: create or repair a profile
+  doctor                  Diagnose the active connection (read-only)
   api                     Interact with the Langfuse REST API
-  get-skill               Print the latest Langfuse skill from GitHub
+  auth                    login | check | logout
+  profile                 add | update | list | show | use | remove
+  config                  path | show
+  skills                  install [--target all|codex|claude]
+  completion              Emit a zsh, bash or fish completion script
 
 Options:
-  --public-key <key>      Langfuse public key (or LANGFUSE_PUBLIC_KEY)
-  --secret-key <key>      Langfuse secret key (or LANGFUSE_SECRET_KEY)
+  --profile <name>        Use a named profile for this command
   --host <url>            Langfuse host (default: ${DEFAULT_HOST})
+  --public-key <key>      Langfuse public key (or LANGFUSE_PUBLIC_KEY)
+  --config-file <path>    Config file (default: ${defaultConfigPath()})
   --env <path>            Load env vars from a file
   --api-version <version> Exact/major version, latest, or auto
   --timeout <ms>          Request timeout (default: ${DEFAULT_TIMEOUT_MS})
+  --output <format>       auto | table | json | raw (default: auto)
+  --json                  Versioned JSON envelope (same as --output json)
+  --raw                   Payload only, no envelope
+  --out-file <path>       Write the response body to a file
   -h, --help              Show help
   --version               Show CLI version
+
+There is no --secret-key flag: an argument-borne secret leaks into shell
+history and the process list. Use \`langfuse-cli auth login\` or LANGFUSE_SECRET_KEY.
+
+Connection order:
+  --host, then --profile, then LANGFUSE_HOST, then the default profile.
+  LANGFUSE_SECRET_KEY overrides a profile's stored key.
 
 Exit codes:
   0 success · 2 usage · 3 configuration · 4 network · 5 HTTP error · 6 local file
 
 Examples:
-  langfuse api help
-  langfuse api prompts list
-  langfuse api prompts create --body-json '{"name":"my-prompt","type":"text","prompt":"Hello"}'
-  langfuse api observations list --limit 20
+  langfuse-cli init
+  langfuse-cli doctor --json
+  langfuse-cli api prompts list
+  langfuse-cli --profile prod api observations list --limit 20
+  langfuse-cli api prompts create --body-json '{"name":"my-prompt","type":"text","prompt":"Hello"}'
 `);
 }
 
@@ -257,7 +364,7 @@ function printApiHelp(contract: ApiContract): void {
   const resources = [...canonicalResourceMap(contract)].sort(([left], [right]) =>
     left.localeCompare(right),
   );
-  process.stdout.write(`Usage: langfuse api <resource> <action> [options]
+  process.stdout.write(`Usage: langfuse-cli api <resource> <action> [options]
 
 API snapshot: ${contract.apiVersion}
 
@@ -288,7 +395,7 @@ Action options:
 function printResourceHelp(contract: ApiContract, resource: string): void {
   const bindings = resourceMap(contract).get(resource);
   if (!bindings) throw new CliError(`Unknown API resource: ${resource}`);
-  process.stdout.write(`Usage: langfuse api ${resource} <action> [options]
+  process.stdout.write(`Usage: langfuse-cli api ${resource} <action> [options]
 
 Actions:
 ${bindings
@@ -324,7 +431,7 @@ export function assertOperationCallable(
   throw new CliError(
     `Cannot call deprecated API operation "${operation.command.resource} ${operation.command.action}" (${operation.method} ${operation.path}) in API ${apiVersion}.` +
       (note ? ` ${note}` : " No replacement is declared in its OpenAPI description.") +
-      ` Use "langfuse api help ${operation.command.resource}" or "langfuse api schema --json" to find supported operations.`,
+      ` Use "langfuse-cli api help ${operation.command.resource}" or "langfuse-cli api schema --json" to find supported operations.`,
   );
 }
 
@@ -433,7 +540,7 @@ function printOperationHelp(operation: ApiOperation): void {
       `  --max-items <number>           Item cap for --all (default ${DEFAULT_MAX_ITEMS})`,
     );
   }
-  process.stdout.write(`Usage: langfuse api ${operation.command.resource} ${operation.command.action}${positionals ? ` ${positionals}` : ""} [options]
+  process.stdout.write(`Usage: langfuse-cli api ${operation.command.resource} ${operation.command.action}${positionals ? ` ${positionals}` : ""} [options]
 
 ${operation.summary ?? operation.operationId}
 ${operation.description ? `\n${operation.description}\n` : ""}
@@ -622,7 +729,7 @@ function bodyHint(operation: ApiOperation): string {
   const unionNote = body.discriminator
     ? `\n(or use field flags directly by selecting a variant: --${body.discriminator.cliName} ${Object.keys(body.discriminator.variants).join("|")} …)`
     : body.union
-      ? `\n(union body: required fields are merged across variants — see \`langfuse api help ${operation.command.resource} ${operation.command.action}\`)`
+      ? `\n(union body: required fields are merged across variants — see \`langfuse-cli api help ${operation.command.resource} ${operation.command.action}\`)`
       : "";
   return `, e.g.\n\n  --body-json '{${sketch}}'\n${unionNote}`;
 }
@@ -1031,8 +1138,10 @@ export function schemaOutput(contract: ApiContract) {
 export async function writeResult(
   result: ApiResult,
   config: RuntimeConfig,
+  command = "api",
+  meta: Meta = {},
 ): Promise<void> {
-  if (config.output) {
+  if (config.outFile) {
     const content =
       result.body === null
         ? ""
@@ -1040,21 +1149,22 @@ export async function writeResult(
         ? result.body
         : JSON.stringify(result.body, null, 2);
     try {
-      await writeFile(config.output, content ?? "");
+      await writeFile(config.outFile, content ?? "");
     } catch (error) {
       throw new CliError(
-        `Cannot write --output file ${config.output}: ${error instanceof Error ? error.message : String(error)}`,
+        `Cannot write --out-file ${config.outFile}: ${error instanceof Error ? error.message : String(error)}`,
         EXIT_LOCAL,
       );
     }
-  } else if (config.json) {
+  } else {
     process.stdout.write(
-      `${JSON.stringify({ status: result.status, headers: result.headers, body: result.body })}\n`,
+      renderSuccess(config.outputMode, command, result.body, {
+        status: result.status,
+        profile: config.profile,
+        host: config.host,
+        ...meta,
+      }),
     );
-  } else if (typeof result.body === "string") {
-    process.stdout.write(result.body.endsWith("\n") ? result.body : `${result.body}\n`);
-  } else if (result.body !== null) {
-    process.stdout.write(`${JSON.stringify(result.body, null, 2)}\n`);
   }
   if (!result.ok) process.exitCode = EXIT_HTTP;
 }
@@ -1115,8 +1225,15 @@ export async function runApi(
   }
   if (["schema", "__schema", "__spec"].includes(args[0])) {
     const schema = schemaOutput(contract);
-    if (config.json) process.stdout.write(`${JSON.stringify(schema)}\n`);
-    else printApiHelp(contract);
+    if (config.outputMode === "table") printApiHelp(contract);
+    else {
+      process.stdout.write(
+        renderSuccess(config.outputMode, "api.schema", schema, {
+          profile: config.profile,
+          host: config.host,
+        }),
+      );
+    }
     return;
   }
   if (args[0] === "help") {
@@ -1139,10 +1256,13 @@ export async function runApi(
   const pagination = extractPaginationFlags(args.slice(2));
   assertPaginationUsage(operation, pagination, config.curl);
   const input = await parseOperationInput(operation, pagination.tokens);
+  // Credentials are resolved here, at the last possible moment, so every
+  // discovery path above stays usable without a configured connection.
+  const connection = await connect(config);
   const client = createApiClient({
-    host: config.host,
-    publicKey: config.publicKey,
-    secretKey: config.secretKey,
+    host: connection.host,
+    publicKey: connection.publicKey,
+    secretKey: connection.secretKey,
     timeoutMs: config.timeoutMs,
   });
   if (config.curl) {
@@ -1151,15 +1271,213 @@ export async function runApi(
     );
     return;
   }
+  const started = Date.now();
   const result = pagination.all
     ? await callAllPages(client, operation, input, pagination.maxItems)
     : await client.call(operation, input);
-  await writeResult(result, config);
+  await writeResult(
+    result,
+    config,
+    `api.${operation.command.resource}.${operation.command.action}`,
+    { elapsedMs: Date.now() - started, profile: connection.profile },
+  );
+}
+
+/** Options that exist only inside a connection subcommand. */
+const SUBCOMMAND_BOOLEANS = new Set(["secret-key-stdin", "no-verify"]);
+
+interface SubcommandArgs {
+  values: Record<string, string>;
+  booleans: Set<string>;
+  positional: string[];
+}
+
+function parseSubcommandArgs(args: string[]): SubcommandArgs {
+  const values: Record<string, string> = {};
+  const booleans = new Set<string>();
+  const positional: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const token = args[index];
+    if (!token.startsWith("--")) {
+      positional.push(token);
+      continue;
+    }
+    const equals = token.indexOf("=");
+    const name = flagKey(equals === -1 ? token : token.slice(0, equals));
+    if (SUBCOMMAND_BOOLEANS.has(name)) {
+      booleans.add(name);
+      continue;
+    }
+    const value = equals === -1 ? args[index + 1] : token.slice(equals + 1);
+    if (value === undefined || (equals === -1 && value.startsWith("--"))) {
+      throw new CliError(`--${name} requires a value`);
+    }
+    values[name] = value;
+    if (equals === -1) index++;
+  }
+  return { values, booleans, positional };
+}
+
+function commandContext(
+  config: RuntimeConfig,
+  sub: SubcommandArgs,
+): CommandContext {
+  return {
+    config: config.configFile,
+    store: config.store,
+    outputMode: config.outputMode,
+    timeoutMs: config.timeoutMs,
+    environment: config.environment,
+    profileFlag: config.profileFlag,
+    hostFlag: config.hostFlag,
+    publicKeyFlag: config.publicKeyFlag,
+    flags: sub.values,
+    booleans: sub.booleans,
+  };
+}
+
+function requirePositional(sub: SubcommandArgs, usage: string): string {
+  const name = sub.positional[1];
+  if (!name) throw new CliError(`Usage: ${usage}`, EXIT_USAGE);
+  return name;
+}
+
+async function runAuth(
+  config: RuntimeConfig,
+  sub: SubcommandArgs,
+): Promise<void> {
+  const context = commandContext(config, sub);
+  switch (sub.positional[0]) {
+    case "login":
+      return authLogin(context);
+    case "check":
+      return authCheck(context);
+    case "logout":
+      return authLogout(context);
+    default:
+      throw new CliError(
+        "Usage: langfuse-cli auth <login|check|logout>",
+        EXIT_USAGE,
+      );
+  }
+}
+
+async function runProfile(
+  config: RuntimeConfig,
+  sub: SubcommandArgs,
+): Promise<void> {
+  const context = commandContext(config, sub);
+  switch (sub.positional[0]) {
+    case "add":
+      return profileAdd(
+        context,
+        requirePositional(
+          sub,
+          "langfuse-cli profile add <name> --host <url> --public-key <pk>",
+        ),
+      );
+    case "update":
+      return profileUpdate(
+        context,
+        requirePositional(
+          sub,
+          "langfuse-cli profile update <name> [--host <url>] [--public-key <pk>]",
+        ),
+      );
+    case "list":
+      return profileList(context);
+    case "show":
+      return profileShow(context, sub.positional[1]);
+    case "use":
+      return profileUse(
+        context,
+        requirePositional(sub, "langfuse-cli profile use <name>"),
+      );
+    case "remove":
+      return profileRemove(
+        context,
+        requirePositional(sub, "langfuse-cli profile remove <name>"),
+      );
+    default:
+      throw new CliError(
+        "Usage: langfuse-cli profile <add|update|list|show|use|remove>",
+        EXIT_USAGE,
+      );
+  }
+}
+
+async function runConfig(
+  config: RuntimeConfig,
+  sub: SubcommandArgs,
+): Promise<void> {
+  const context = commandContext(config, sub);
+  switch (sub.positional[0]) {
+    case "path":
+      return configPath(context);
+    case "show":
+      return configShow(context);
+    default:
+      throw new CliError("Usage: langfuse-cli config <path|show>", EXIT_USAGE);
+  }
+}
+
+async function runSkills(
+  config: RuntimeConfig,
+  sub: SubcommandArgs,
+): Promise<void> {
+  if (sub.positional[0] !== "install") {
+    throw new CliError(
+      "Usage: langfuse-cli skills install [--target all|codex|claude]",
+      EXIT_USAGE,
+    );
+  }
+  const results = await installSkills(parseSkillTarget(sub.values.target));
+  if (config.outputMode === "table") {
+    process.stdout.write(
+      `${renderTable(
+        ["target", "installed", "updated", "unchanged", "directory"],
+        results.map((result) => [
+          result.target,
+          String(result.installed.length),
+          String(result.updated.length),
+          String(result.unchanged.length),
+          result.directory,
+        ]),
+      )}\n`,
+    );
+    return;
+  }
+  process.stdout.write(
+    renderSuccess(config.outputMode, "skills.install", results),
+  );
 }
 
 export async function run(argv: string[]): Promise<void> {
+  const raw = argv.slice(2);
+
+  // Completion runs on every keypress, so it takes a deliberately short path:
+  // it reads the config for profile names but never probes the credential
+  // store, and it consumes the raw argv because global options must stay
+  // visible to decide what the cursor is completing. Any failure yields no
+  // candidates rather than an error, which would corrupt the shell's display.
+  if (raw[0] === "__complete") {
+    try {
+      const configPathIndex = raw.indexOf("--config-file");
+      const config = await Config.load(
+        (configPathIndex !== -1 ? raw[configPathIndex + 1] : undefined) ??
+          defaultConfigPath(),
+      );
+      process.stdout.write(
+        renderCompletions(await complete(raw.slice(1), { config })),
+      );
+    } catch {
+      process.stdout.write(renderCompletions([]));
+    }
+    return;
+  }
+
   try {
-    const globals = extractGlobals(argv.slice(2));
+    const globals = extractGlobals(raw);
     const [command, ...args] = globals.args;
     if (command === "--version") {
       process.stdout.write(`${packageJson.version}\n`);
@@ -1170,13 +1488,36 @@ export async function run(argv: string[]): Promise<void> {
       return;
     }
     if (command === "get-skill") {
-      await getSkill();
-      return;
+      throw new CliError(
+        "get-skill was replaced by `langfuse-cli skills install`, which installs the bundled SKILL.md together with every references/*.md it links to.",
+        EXIT_USAGE,
+      );
     }
-    if (command !== "api") {
-      throw new CliError(`Unknown command: ${command}`);
+    const config = await runtimeConfig(globals);
+    const sub = parseSubcommandArgs(args);
+    switch (command) {
+      case "api":
+        return await runApi(config, args);
+      case "init":
+        return await init(commandContext(config, sub));
+      case "doctor":
+        return await doctor(commandContext(config, sub));
+      case "auth":
+        return await runAuth(config, sub);
+      case "profile":
+        return await runProfile(config, sub);
+      case "config":
+        return await runConfig(config, sub);
+      case "skills":
+        return await runSkills(config, sub);
+      case "completion":
+        process.stdout.write(
+          renderCompletionScript(parseCompletionShell(sub.positional[0])),
+        );
+        return;
+      default:
+        throw new CliError(`Unknown command: ${command}`);
     }
-    await runApi(await runtimeConfig(globals), args);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`${message}\n`);
