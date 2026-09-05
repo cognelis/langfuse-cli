@@ -1,6 +1,6 @@
 {
   "name": "@cognelis/langfuse-cli",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Interact with the Langfuse API from the command line, with keyring-backed profiles",
   "author": "Langfuse",
   "license": "MIT",

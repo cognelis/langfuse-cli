@@ -1,6 +1,6 @@
 {
   "name": "langfuse-cli",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Use the Langfuse CLI safely in shell, CI, and JSON automation workflows.",
   "author": {
     "name": "langfuse-cli contributors"
