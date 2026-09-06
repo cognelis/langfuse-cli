@@ -10,6 +10,8 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-06
+
 ### Added
 
 - Releases now carry a standalone executable for macOS, Linux, and Windows on
