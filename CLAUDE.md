@@ -29,10 +29,22 @@ git tag -a vX.Y.Z -m "vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-Pushing the `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which
-re-runs every gate, verifies the tag matches `package.json`, checks the tarball
-actually contains the CLI, contracts and skill, and publishes through **npm
-trusted publishing (OIDC)** — no token, no OTP.
+Pushing the `vX.Y.Z` tag triggers `.github/workflows/release.yml`, which runs
+four stages, each gating the next:
+
+1. `validate` — re-runs every gate and fails unless the tag matches
+   `package.json` and `repository.url` names the repository it runs in.
+2. `binaries` — six parallel jobs (macOS, Linux, Windows × arm64, x86-64), each
+   compiling **and starting** its own standalone executable.
+3. `release` — re-hashes every artifact and publishes the GitHub release with
+   the binaries, `checksums.txt`, `LICENSE` and the changelog section.
+4. `npm` — verifies the packed tarball actually contains the CLI, contracts and
+   skill, then publishes through **npm trusted publishing (OIDC)** — no token,
+   no OTP.
+
+If a platform build flakes after the tag is public, re-run the workflow from the
+Actions tab with the existing tag. Leave `publish_npm` off unless the `npm`
+stage is the part that failed: a version publishes to the registry only once.
 
 **Why CI and not a local publish:** the npm account uses passkey 2FA, and
 `npm publish` only falls back to the browser WebAuthn challenge inside a real
@@ -71,7 +83,12 @@ the product version.
 - **`private` must stay absent and `publishConfig.access` must stay `public`.**
   The name must stay under `@cognelis/`; the bare `langfuse-cli` is upstream's.
 - **`files` lists `dist/cli.js`, `dist/contracts`, `dist/skills` explicitly**,
-  never bare `dist` — `bun run compile` writes a ~60 MB executable there.
+  never bare `dist` — the release build writes the ~60-90 MB executables to
+  `dist/`, and they belong on the GitHub release, never in the npm tarball.
+- **A release binary is built on a runner of its own platform.**
+  `scripts/build-release.ts build` refuses a target the host cannot execute,
+  because it starts the binary it just compiled. Do not "simplify" the matrix
+  into one cross-compiling job.
 - **Completion is a callback, not a generated table.** The command surface
   depends on `--api-version` (22 resources on 3.50, 37 on 4.16), so a baked-in
   list would be wrong. Completion must never do network I/O or open the

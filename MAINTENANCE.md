@@ -108,9 +108,10 @@ before updating installed copies with `skills install`.
 bun run release:check
 ```
 
-It verifies that the version is a plain semver triple, that `private` is still
-set, that all four manifests agree, and that `CHANGELOG.md` records the version
-with a date and lists releases newest-first. It rejects duplicates and
+It verifies that the version is a plain semver triple, that `private` is
+absent, that the name stays under `@cognelis/` with `publishConfig.access` set
+to `public`, that all four manifests agree, and that `CHANGELOG.md` records the
+version with a date and lists releases newest-first. It rejects duplicates and
 out-of-order entries. **It does not commit, tag, push, publish, or install
 anything** — that decision stays with a human.
 
@@ -120,7 +121,9 @@ Run the full gates before finalizing:
 bun run typecheck
 bun test
 bun run conformance:all
-bun run compile          # optional: verify the standalone executable
+
+# optional: the release build path, exactly as CI runs it for one platform
+bun scripts/build-release.ts build --target bun-darwin-arm64
 ```
 
 ## Publishing
@@ -133,7 +136,7 @@ namespaces the package.
 
 ### Releasing
 
-Pushing a `vX.Y.Z` tag publishes. Nothing else does.
+Pushing a `vX.Y.Z` tag releases. Nothing else does.
 
 ```sh
 # CHANGELOG.md: move Unreleased into a dated section for the new version
@@ -147,11 +150,57 @@ git push origin main
 git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
 ```
 
-[`release.yml`](.github/workflows/release.yml) then re-runs every gate, verifies
-the tag matches `package.json`, verifies the packed tarball actually contains
-the CLI, the API contracts and the Skill — and that it does *not* contain the
-~60 MB standalone executable — and publishes through **npm trusted publishing
-(OIDC)**. No npm token exists anywhere.
+[`release.yml`](.github/workflows/release.yml) then runs four stages, each
+gating the next:
+
+| Stage | What it does |
+| --- | --- |
+| `validate` | Re-runs every gate, and fails unless the tag matches `package.json` and `repository.url` names the repository the workflow is running in |
+| `binaries` | Six parallel jobs, one per platform, each building **and starting** its own standalone executable |
+| `release` | Re-hashes every artifact, then publishes the GitHub release with the binaries, `checksums.txt`, `LICENSE` and the changelog section |
+| `npm` | Verifies the packed tarball and publishes through **npm trusted publishing (OIDC)** |
+
+The tarball check confirms the package carries the CLI, the API contracts and
+the Skill — and that it carries none of the standalone executables. No npm
+token exists anywhere.
+
+### The standalone executables
+
+[`scripts/build-release.ts`](scripts/build-release.ts) owns both halves of the
+binary release.
+
+```sh
+# on a runner whose platform matches the target
+bun scripts/build-release.ts build --target bun-linux-x64
+
+# on one runner, once all six platform artifacts have been collected
+bun scripts/build-release.ts assemble
+```
+
+`build` refuses a target the host cannot execute. That is the whole point of the
+six-way matrix: after compiling, it starts the binary and checks the reported
+version, the `api` command surface, the `_langfuse-cli` completion function
+name, the completion callback, and the exit code and empty stdout of a usage
+error. It then writes a manifest recording the version, target, size and
+SHA-256 beside the executable.
+
+`assemble` re-hashes every binary against the manifest its own runner wrote, so
+an artifact left over from a different run or a different version cannot reach
+a release. It writes `checksums.txt`, copies `LICENSE`, and renders `notes.md`
+from the changelog section for the current version plus install instructions.
+
+Assets are named `langfuse-cli-<os>-<arch>`, using `amd64` rather than `x64`
+because that is the spelling people type when downloading. Bun bundles its
+runtime, so each is 60–90 MB.
+
+### Re-running a release
+
+If a platform build flakes after the tag is pushed, re-run the workflow from the
+Actions tab with **Run workflow**, giving the existing tag. `publish_npm`
+defaults to off, because a version can only be published to the registry once;
+leave it off unless the `npm` stage is the part that failed. A GitHub release
+that is already published keeps its assets — only a draft is filled in and
+flipped to published.
 
 ### Why publishing is not done locally
 
@@ -178,7 +227,9 @@ workflow.
 ```sh
 npm view @cognelis/langfuse-cli
 npm i -g @cognelis/langfuse-cli && langfuse-cli doctor
+
+gh release view vX.Y.Z --repo cognelis/langfuse-cli
 ```
 
-The standalone executable from `bun run compile` is not distributed through npm;
-build it locally when a machine has no Node installation.
+The standalone executables are release assets, never npm contents: the package
+would otherwise carry ~450 MB of binaries that no `npm i -g` install can use.

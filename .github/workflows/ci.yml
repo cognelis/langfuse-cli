@@ -58,8 +58,8 @@ jobs:
           bun bin/langfuse-cli.mjs completion zsh > /dev/null
           bun bin/langfuse-cli.mjs __complete api prompts | grep -q '^list'
 
+      # The release pipeline's own build path, run on every push so a broken
+      # release script surfaces here rather than under a tag that is already
+      # public. It compiles the standalone executable and then starts it.
       - name: Build and smoke-test the standalone executable
-        run: |
-          bun run compile
-          ./dist/langfuse-cli --version
-          ./dist/langfuse-cli api help > /dev/null
+        run: bun scripts/build-release.ts build --target bun-linux-x64

@@ -16,8 +16,35 @@ const root = resolve(import.meta.dirname, "..");
 const dist = resolve(root, "dist");
 const contractsDirectory = resolve(dist, "contracts");
 
-const outFile = process.argv[2]
-  ? resolve(process.cwd(), process.argv[2])
+// `--target` selects one of Bun's `bun-<os>-<arch>` triplets. Without it Bun
+// compiles for the host, which is what a local `bun run compile` wants; the
+// release pipeline names a target explicitly so the asset it produces is
+// unambiguous even when the runner could have been guessed wrong.
+let target: string | undefined;
+let positional: string | undefined;
+for (let index = 2; index < process.argv.length; index++) {
+  const argument = process.argv[index]!;
+  if (argument === "--target") {
+    target = process.argv[++index];
+    if (!target) {
+      process.stderr.write("--target requires a value, e.g. bun-linux-x64\n");
+      process.exit(1);
+    }
+  } else if (argument.startsWith("--target=")) {
+    target = argument.slice("--target=".length);
+  } else if (argument.startsWith("-")) {
+    process.stderr.write(`Unknown option: ${argument}\n`);
+    process.exit(1);
+  } else if (positional === undefined) {
+    positional = argument;
+  } else {
+    process.stderr.write(`Unexpected argument: ${argument}\n`);
+    process.exit(1);
+  }
+}
+
+const outFile = positional
+  ? resolve(process.cwd(), positional)
   : resolve(dist, "langfuse-cli");
 
 let entries: string[];
@@ -66,6 +93,7 @@ const result = Bun.spawnSync([
   "build",
   "--compile",
   "--minify",
+  ...(target ? [`--target=${target}`] : []),
   entryPath,
   "--outfile",
   outFile,
@@ -77,7 +105,9 @@ if (result.exitCode !== 0) {
   process.exit(result.exitCode ?? 1);
 }
 
-const size = (await Bun.file(outFile).stat()).size;
+// Bun appends .exe when it compiles for Windows and the name lacks it.
+const written = (await Bun.file(outFile).exists()) ? outFile : `${outFile}.exe`;
+const size = (await Bun.file(written).stat()).size;
 process.stdout.write(
-  `Compiled ${outFile} (${(size / 1024 / 1024).toFixed(1)} MB) with ${contracts.size - 1} embedded contracts\n`,
+  `Compiled ${written} (${(size / 1024 / 1024).toFixed(1)} MB) with ${contracts.size - 1} embedded contracts\n`,
 );

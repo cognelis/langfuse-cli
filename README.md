@@ -26,13 +26,33 @@ The binary is named `langfuse-cli`. The package is scoped because the bare
 
 ### Single-file executable
 
-`npm i -g .` ties the CLI to the Node version it was installed under. To get a
-standalone executable with no Node dependency, and with all six API contracts
-embedded:
+An `npm i -g` install ties the CLI to the Node version it was installed under.
+Every [release](https://github.com/cognelis/langfuse-cli/releases) also carries
+a standalone executable with no Node dependency and all six API contracts
+embedded, for macOS, Linux and Windows on both x86-64 and arm64:
+
+```sh
+# pick the asset for your platform: langfuse-cli-{darwin,linux}-{arm64,amd64}
+# or langfuse-cli-windows-{arm64,amd64}.exe
+curl -fsSL -o langfuse-cli \
+  https://github.com/cognelis/langfuse-cli/releases/latest/download/langfuse-cli-darwin-arm64
+chmod +x langfuse-cli && ./langfuse-cli --version
+```
+
+Each asset is built and started on a runner of its own platform before the
+release is published, and `checksums.txt` in the same release verifies a
+download:
+
+```sh
+shasum -a 256 --ignore-missing -c checksums.txt
+```
+
+Or build it from a checkout:
 
 ```sh
 bun run compile              # writes dist/langfuse-cli
 bun run compile ~/bin/langfuse-cli
+bun run compile ./langfuse-cli --target bun-linux-arm64   # cross-compile
 ```
 
 The contracts have to be embedded rather than read from disk: a compiled binary

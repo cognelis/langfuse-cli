@@ -10,6 +10,26 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+### Added
+
+- Releases now carry a standalone executable for macOS, Linux, and Windows on
+  both arm64 and x86-64, published as GitHub release assets alongside
+  `checksums.txt`, `LICENSE`, and the changelog section for the version. Each
+  binary is compiled **and started** on a runner of its own platform before the
+  release is published — the reported version, the `api` command surface, the
+  completion function name, the completion callback, and the usage exit code
+  are all checked — and the assets are re-hashed against per-platform manifests
+  before anything is uploaded. Downloading one needs no Node installation:
+
+  ```sh
+  curl -fsSL -o langfuse-cli \
+    https://github.com/cognelis/langfuse-cli/releases/latest/download/langfuse-cli-darwin-arm64
+  ```
+
+- `bun run compile` accepts `--target <bun-triplet>` (for example
+  `bun-linux-arm64`), so a checkout can build an executable for another
+  platform. Without it the host platform is used, as before.
+
 ## [2.0.1] - 2026-09-06
 
 ### Changed

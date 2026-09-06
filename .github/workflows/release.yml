@@ -1,66 +1,89 @@
 ---
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 #
-# Publishes @cognelis/langfuse-cli when a `v*` tag is pushed.
+# Releases @cognelis/langfuse-cli when a `v*` tag is pushed. A release is two
+# artifacts from one commit:
 #
-# Publishing uses npm trusted publishing (OIDC): no token exists anywhere, and
-# no one-time password is involved. That is deliberate — `npm publish` from a
-# workstation needs a real terminal to complete the passkey challenge, which
-# makes releasing impossible to automate locally.
+#   * the npm package, published through npm trusted publishing (OIDC) — no
+#     token exists anywhere, and no one-time password is involved. That is
+#     deliberate: `npm publish` from a workstation needs a real terminal to
+#     complete the passkey challenge, which makes releasing impossible to
+#     automate locally.
+#   * a GitHub release carrying a standalone executable for each supported
+#     platform, a checksums file and the changelog section for the version.
+#     Each executable is built *and started* on a runner of its own platform,
+#     so nothing untested is published.
 #
-# The tag is the release trigger, so the gates below run before anything is
-# published and the job fails closed if the tag and package.json disagree.
+# The tag is the trigger, so every gate runs before anything is published and
+# the pipeline fails closed if the tag and package.json disagree. A
+# workflow_dispatch re-run can rebuild the binaries for an existing tag;
+# publishing to npm stays off unless it is asked for, because a version can
+# only be published once.
 name: Release
 
 on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to build and release
+        required: true
+        type: string
+      publish_npm:
+        description: Also publish to npm (only possible once per version)
+        default: false
+        type: boolean
 
 permissions: {}
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
 jobs:
-  publish:
-    name: Verify and publish to npm
+  validate:
+    name: Verify the tag and run every gate
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write # OIDC credential for npm trusted publishing
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          ref: ${{ env.RELEASE_TAG }}
           persist-credentials: false
 
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.3.14
-
-      - name: Set up Node
-        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v5.0.0
-        with:
-          node-version: 24
-          registry-url: https://registry.npmjs.org
-
-      # Trusted publishing needs npm 11.5.1 or newer; the bundled npm may be older.
-      - name: Ensure npm supports trusted publishing
-        run: npm install -g npm@latest
+          # A release must not be assembled from a restorable cache: a poisoned
+          # entry would reach the published artifacts.
+          no-cache: true
 
       - name: Install dependencies
         run: bun ci
 
-      - name: Verify the tag matches package.json
+      # The repository slug is checked too: the release notes link to their own
+      # assets by that slug, so a stale fork URL would ship dead download links.
+      - name: Verify the tag and repository metadata
         env:
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ env.RELEASE_TAG }}
         run: |
-          DECLARED="v$(node -p "require('./package.json').version")"
+          set -euo pipefail
+          DECLARED="v$(bun -e 'console.log((await Bun.file("package.json").json()).version)')"
           if [ "$TAG" != "$DECLARED" ]; then
             echo "::error::tag $TAG does not match package.json version $DECLARED"
+            exit 1
+          fi
+          SLUG=$(bun -e 'const url = (await Bun.file("package.json").json()).repository?.url ?? ""; console.log(/github\.com[/:]([^/]+\/[^/]+?)(?:\.git)?$/.exec(url)?.[1] ?? "")')
+          if [ "$SLUG" != "$GITHUB_REPOSITORY" ]; then
+            echo "::error::package.json repository is $SLUG, not $GITHUB_REPOSITORY; release note links would point elsewhere"
             exit 1
           fi
 
@@ -76,6 +99,154 @@ jobs:
       - name: Fake-call every endpoint in every API snapshot
         run: bun run conformance:all
 
+  binaries:
+    name: Build ${{ matrix.target }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: bun-darwin-arm64
+          - runner: macos-15-intel
+            target: bun-darwin-x64
+          - runner: ubuntu-22.04
+            target: bun-linux-x64
+          - runner: ubuntu-22.04-arm
+            target: bun-linux-arm64
+          - runner: windows-2022
+            target: bun-windows-x64
+          - runner: windows-11-arm
+            target: bun-windows-arm64
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+          # A release must not be assembled from a restorable cache: a poisoned
+          # entry would reach the published artifacts.
+          no-cache: true
+
+      - name: Install dependencies
+        run: bun ci
+
+      # build-release.ts refuses a target the runner cannot execute, then starts
+      # the binary it produced: version, API surface, completion function name,
+      # completion callback and the usage exit code.
+      - name: Build and smoke-test the standalone executable
+        shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+        run: bun scripts/build-release.ts build --target "$TARGET"
+
+      - name: Upload the platform artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-${{ matrix.target }}
+          path: dist/artifacts/*
+          if-no-files-found: error
+
+  release:
+    name: Publish the GitHub release
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+          # A release must not be assembled from a restorable cache: a poisoned
+          # entry would reach the published artifacts.
+          no-cache: true
+
+      - name: Download every platform artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: native-*
+          path: dist/artifacts
+          merge-multiple: true
+
+      # Re-hashes every binary against the manifest its own runner wrote, so an
+      # artifact from a different run or a different version cannot be released.
+      - name: Verify every platform and assemble the asset set
+        run: bun scripts/build-release.ts assemble
+
+      # The release is created as a draft and only flipped to published once all
+      # of its assets are uploaded, so nobody can download a half-filled release.
+      # An already-published release keeps the assets it has.
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ env.RELEASE_TAG }}
+        run: |
+          set -euo pipefail
+          if DRAFT=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
+            if [ "$DRAFT" = "true" ]; then
+              gh release upload "$TAG" dist/release/langfuse-cli-* dist/release/checksums.txt dist/release/LICENSE --clobber
+              gh release edit "$TAG" --draft=false --notes-file dist/release/notes.md
+            else
+              echo "::notice::$TAG is already published; its assets were left untouched"
+            fi
+          else
+            gh release create "$TAG" --verify-tag --draft --title "$TAG" --notes-file dist/release/notes.md
+            gh release upload "$TAG" dist/release/langfuse-cli-* dist/release/checksums.txt dist/release/LICENSE
+            gh release edit "$TAG" --draft=false
+          fi
+
+  npm:
+    name: Verify and publish to npm
+    needs: release
+    if: github.event_name == 'push' || inputs.publish_npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC credential for npm trusted publishing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+          persist-credentials: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.14
+          # A release must not be assembled from a restorable cache: a poisoned
+          # entry would reach the published artifacts.
+          no-cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v5.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      # Trusted publishing needs npm 11.5.1 or newer; the bundled npm may be older.
+      - name: Ensure npm supports trusted publishing
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: bun ci
+
       - name: Build the published artifacts
         run: bun run build
 
@@ -87,9 +258,9 @@ jobs:
         run: |
           set -euo pipefail
           npm pack --silent
-          tarball=$(ls -1 ./*.tgz | head -1)
-          tar -tzf "$tarball" | sed 's|^package/||' | sort > /tmp/tarball-files.txt
-          rm -f "$tarball"
+          tarballs=(./*.tgz)
+          tar -tzf "${tarballs[0]}" | sed 's|^package/||' | sort > /tmp/tarball-files.txt
+          rm -f "${tarballs[@]}"
 
           failed=0
           for required in \
@@ -109,9 +280,10 @@ jobs:
           [ "$contracts" -ge 2 ] || { echo "::error::tarball carries $contracts API contracts"; failed=1; }
           [ "$references" -ge 1 ] || { echo "::error::tarball carries no skill references"; failed=1; }
 
-          # The compiled standalone executable must never reach the registry.
-          if grep -qx 'dist/langfuse-cli' /tmp/tarball-files.txt; then
-            echo "::error::tarball contains the standalone executable"
+          # The compiled standalone executables are GitHub release assets; they
+          # must never reach the registry.
+          if grep -qE '^dist/(langfuse-cli|artifacts/|release/)' /tmp/tarball-files.txt; then
+            echo "::error::tarball contains a standalone executable"
             failed=1
           fi
 
