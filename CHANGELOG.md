@@ -32,6 +32,14 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
   `bun-linux-arm64`), so a checkout can build an executable for another
   platform. Without it the host platform is used, as before.
 
+### Fixed
+
+- A checkout on Windows can now build. The bundled OpenAPI snapshots are pinned
+  by a SHA-256 over their text, and Git's default `core.autocrlf` on Windows
+  rewrote every line ending, so the integrity check rejected all six snapshots.
+  A repository-wide `.gitattributes` keeps them LF, and the mismatch now says
+  when CRLF is the cause.
+
 ## [2.0.1] - 2026-09-06
 
 ### Changed

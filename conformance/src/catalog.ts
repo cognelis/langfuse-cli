@@ -39,8 +39,14 @@ export async function readVerifiedSpec(entry: CatalogEntry): Promise<string> {
   const text = await file.text();
   const actual = await sha256(text);
   if (actual !== entry.sha256) {
+    // CRLF is the one mismatch that is not a corrupted snapshot: the pin is
+    // taken over LF text, and a checkout that ignores .gitattributes rewrites
+    // every line. Say so, rather than leaving a bare hash difference.
+    const hint = text.includes("\r\n")
+      ? "; the file has CRLF line endings, so the checkout rewrote it — see .gitattributes"
+      : "";
     throw new Error(
-      `SHA-256 mismatch for ${entry.ref}: expected ${entry.sha256}, got ${actual}`,
+      `SHA-256 mismatch for ${entry.ref}: expected ${entry.sha256}, got ${actual}${hint}`,
     );
   }
   return text;

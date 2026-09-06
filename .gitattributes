@@ -1,0 +1,6 @@
+# The committed OpenAPI snapshots are pinned by a SHA-256 over their file text,
+# so a checkout must never rewrite line endings: a Windows runner's default
+# core.autocrlf turns every LF into CRLF, which changes every hash and fails the
+# build before it starts. No tracked file in this repository is a binary blob,
+# so the rule is repository-wide rather than a list that a new file could miss.
+* text=auto eol=lf
