@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   Config,
   normalizeHost,
+  profileDescription,
   resolveCredentials,
   fallbackCredentialPath,
 } from "./config";
@@ -85,6 +86,41 @@ describe("profile storage", () => {
     // An equivalent URL keeps the key: only a real move invalidates it.
     expect(config.updateProfile("a", { host: "https://other.example.com/" }))
       .toEqual({ hostChanged: false });
+  });
+
+  test("a description is kept by other updates and cleared by an empty one", () => {
+    const config = Config.empty("/tmp/x.json");
+    config.addProfile("prod", HOST, "pk", "Production traces");
+    expect(config.profile("prod")?.description).toBe("Production traces");
+    // Re-running setup updates only the host and key.
+    config.updateProfile("prod", { host: "https://other.example.com", publicKey: "pk-2" });
+    expect(config.profile("prod")?.description).toBe("Production traces");
+    config.updateProfile("prod", { description: "" });
+    expect(config.profile("prod")).not.toHaveProperty("description");
+  });
+
+  test("a description must be one line of at most 200 characters", () => {
+    expect(profileDescription("  Production traces ")).toBe("Production traces");
+    expect(() => profileDescription("two\nlines")).toThrow("one line");
+    expect(() => profileDescription("x".repeat(201))).toThrow("one line");
+  });
+
+  test("a stored description survives loading", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "langfuse-config-"));
+    try {
+      const path = join(directory, "config.json");
+      await writeFile(
+        path,
+        JSON.stringify({
+          profiles: { prod: { host: HOST, publicKey: "pk", description: "Production traces" } },
+        }),
+      );
+      expect((await Config.load(path)).profile("prod")?.description).toBe(
+        "Production traces",
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   test("removing the current profile promotes another one", () => {

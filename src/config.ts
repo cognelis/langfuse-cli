@@ -8,13 +8,15 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { CredentialStore } from "./credentials";
-import { CliError, EXIT_CONFIG } from "./errors";
+import { CliError, EXIT_CONFIG, EXIT_USAGE } from "./errors";
 
 export const DEFAULT_HOST = "https://cloud.langfuse.com";
 
 export interface ProfileConfig {
   host: string;
   publicKey: string;
+  /** What the environment is for, so people and agents can choose the right profile. */
+  description?: string;
 }
 
 export interface ConfigData {
@@ -98,6 +100,18 @@ export function assertProfileName(name: string): void {
   }
 }
 
+/** A description is one trimmed line of at most 200 characters; empty clears it. */
+export function profileDescription(text: string): string {
+  const trimmed = text.trim();
+  if ([...trimmed].length > 200 || /[\u0000-\u001f\u007f-\u009f]/.test(trimmed)) {
+    throw new CliError(
+      "A profile description must be one line of at most 200 characters",
+      EXIT_USAGE,
+    );
+  }
+  return trimmed;
+}
+
 export class Config {
   constructor(
     readonly path: string,
@@ -161,7 +175,12 @@ export class Config {
     });
   }
 
-  addProfile(name: string, host: string, publicKey: string): void {
+  addProfile(
+    name: string,
+    host: string,
+    publicKey: string,
+    description?: string,
+  ): void {
     assertProfileName(name);
     if (this.data.profiles[name]) {
       throw new CliError(`Profile '${name}' already exists`, EXIT_CONFIG);
@@ -169,6 +188,7 @@ export class Config {
     this.data.profiles[name] = {
       host: normalizeHost(host),
       publicKey: publicKey.trim(),
+      ...(description ? { description } : {}),
     };
     this.data.currentProfile ??= name;
   }
@@ -180,7 +200,7 @@ export class Config {
    */
   updateProfile(
     name: string,
-    changes: { host?: string; publicKey?: string },
+    changes: { host?: string; publicKey?: string; description?: string },
   ): { hostChanged: boolean } {
     const existing = this.data.profiles[name];
     if (!existing) {
@@ -189,12 +209,18 @@ export class Config {
     const nextHost =
       changes.host === undefined ? existing.host : normalizeHost(changes.host);
     const hostChanged = nextHost !== existing.host;
+    // Omitted changes keep the current value, so re-running setup keeps the description.
+    const description =
+      changes.description === undefined
+        ? existing.description
+        : changes.description || undefined;
     this.data.profiles[name] = {
       host: nextHost,
       publicKey:
         changes.publicKey === undefined
           ? existing.publicKey
           : changes.publicKey.trim(),
+      ...(description ? { description } : {}),
     };
     return { hostChanged };
   }
@@ -360,6 +386,9 @@ function normalizeData(parsed: unknown): ConfigData {
     profiles[name] = {
       host: host.replace(/\/+$/, ""),
       publicKey: typeof entry.publicKey === "string" ? entry.publicKey : "",
+      ...(typeof entry.description === "string" && entry.description
+        ? { description: entry.description }
+        : {}),
     };
   }
   const currentProfile =

@@ -84,7 +84,7 @@ langfuse-cli doctor --json
 For scripts that intentionally persist a profile, profiles store only the host and the public key. The secret key is verified before it is stored in the keyring.
 
 ```sh
-langfuse-cli profile add production --host https://langfuse.example.com --public-key pk-lf-...
+langfuse-cli profile add production --host https://langfuse.example.com --public-key pk-lf-... --description "Production traces"
 langfuse-cli profile use production
 printf '%s' "$LANGFUSE_SECRET_KEY" | langfuse-cli auth login --secret-key-stdin
 langfuse-cli doctor --json
@@ -105,6 +105,8 @@ langfuse-cli --profile prod api projects list
 Connections resolve in this order: `--host`, then `--profile`, then `LANGFUSE_HOST` (or `LANGFUSE_BASE_URL`), then the default profile. `LANGFUSE_SECRET_KEY` overrides the selected profile's stored key; unset it to use that profile's credential. Because `--host` and `LANGFUSE_HOST` name an address directly, they take their credentials from the environment — a stray profile can never silently supply a key for an address you typed by hand.
 
 Changing an instance address with `profile update <name> --host <url>` clears the saved secret key before saving the new address, and tells you to authenticate again. An equivalent normalized URL preserves the key. If the credential store cannot clear the old key, the address is left unchanged.
+
+`profile add` and `profile update` accept `--description` to record what an environment is for; `profile list` and `profile show` return it. A description is trimmed and must be one line of at most 200 characters, `--description ""` clears it, and changing only the description keeps the saved secret key. The bundled skill chooses a profile by its name and description: it uses a profile the user names, matches an environment or purpose that the request mentions against `profile list`, asks the user when several profiles or none could match, and uses the default profile only when the request names no environment.
 
 ### Where the secret actually goes
 

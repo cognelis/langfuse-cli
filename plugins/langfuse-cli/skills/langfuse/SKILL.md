@@ -99,6 +99,24 @@ For CI, take `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`
 from the provider's secret store. Environment credentials override the active
 profile, so the same command works on a workstation and in a pipeline.
 
+### Choosing a profile
+
+Choose the profile before the first command of a workflow:
+
+1. If the user names a configured profile, use it.
+2. If the request names an environment, purpose, or project, run
+   `langfuse-cli profile list --json` and match the request against each
+   profile's `name` and `description`. Use the profile that clearly matches.
+3. If several profiles could match or none does, ask the user which profile to
+   use. Never fall back to the default profile for a request about a different
+   environment.
+4. If the request names no environment, use the default profile, the entry
+   with `current: true`.
+
+Pass the chosen `--profile <name>` to every command in that workflow and tell
+the user which profile you used. Descriptions are the user's own labels, set
+with `profile add|update --description`; change them only when asked.
+
 ### Output contract
 
 `--json` wraps the result in a versioned envelope

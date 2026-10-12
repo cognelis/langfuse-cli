@@ -10,6 +10,21 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+### Added
+
+- Profile descriptions: `profile add|update --description` records what an
+  environment is for, and `profile list` and `profile show` return it. A
+  description change keeps the saved secret key, and re-running `init` keeps the
+  description. The bundled skill chooses a profile by its name and description,
+  and asks the user when several profiles or none could match.
+
+### Fixed
+
+- `--help` after a connection command, such as `langfuse-cli profile add --help`,
+  prints usage instead of failing with "--help requires a value".
+- Tables align columns that contain Chinese and other wide characters, as in
+  signoz-cli.
+
 ## [2.1.0] - 2026-09-06
 
 ### Added

@@ -1286,6 +1286,18 @@ export async function runApi(
 /** Options that exist only inside a connection subcommand. */
 const SUBCOMMAND_BOOLEANS = new Set(["secret-key-stdin", "no-verify"]);
 
+const PROFILE_USAGE = `Usage:
+  langfuse-cli profile add <name> --host <url> --public-key <pk> [--description <text>]
+  langfuse-cli profile update <name> [--host <url>] [--public-key <pk>] [--description <text>]
+  langfuse-cli profile list
+  langfuse-cli profile show [<name>]
+  langfuse-cli profile use <name>
+  langfuse-cli profile remove <name>
+
+--description records what the environment is for, in one line of at most 200
+characters; profile list and profile show return it, and an empty value clears it.
+`;
+
 interface SubcommandArgs {
   values: Record<string, string>;
   booleans: Set<string>;
@@ -1373,7 +1385,7 @@ async function runProfile(
         context,
         requirePositional(
           sub,
-          "langfuse-cli profile add <name> --host <url> --public-key <pk>",
+          "langfuse-cli profile add <name> --host <url> --public-key <pk> [--description <text>]",
         ),
       );
     case "update":
@@ -1381,7 +1393,7 @@ async function runProfile(
         context,
         requirePositional(
           sub,
-          "langfuse-cli profile update <name> [--host <url>] [--public-key <pk>]",
+          "langfuse-cli profile update <name> [--host <url>] [--public-key <pk>] [--description <text>]",
         ),
       );
     case "list":
@@ -1492,6 +1504,13 @@ export async function run(argv: string[]): Promise<void> {
         "get-skill was replaced by `langfuse-cli skills install`, which installs the bundled SKILL.md together with every references/*.md it links to.",
         EXIT_USAGE,
       );
+    }
+    // Connection commands parse their own options and would read --help as an
+    // option that needs a value; `api` resolves its help from the contract.
+    if (command !== "api" && (args.includes("--help") || args.includes("-h"))) {
+      if (command === "profile") process.stdout.write(PROFILE_USAGE);
+      else printHelp();
+      return;
     }
     const config = await runtimeConfig(globals);
     const sub = parseSubcommandArgs(args);

@@ -960,3 +960,76 @@ describe("result output", () => {
     }
   });
 });
+
+describe("profile descriptions", () => {
+  test("are stored, listed, shown and cleared", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "langfuse-cli-profile-"));
+    const originalStore = process.env.LANGFUSE_CREDENTIAL_STORE;
+    const originalExitCode = process.exitCode;
+    process.env.LANGFUSE_CREDENTIAL_STORE = "file";
+    process.exitCode = undefined;
+    const argv = (...args: string[]) => [
+      "node",
+      "langfuse-cli",
+      "--json",
+      "--config-file",
+      join(directory, "config.json"),
+      ...args,
+    ];
+    // Every call made through this helper succeeds and prints one JSON envelope.
+    const cli = async (...args: string[]): Promise<any> =>
+      JSON.parse((await captureOutput(() => run(argv(...args)))).stdout);
+
+    try {
+      const added = await cli(
+        "profile", "add", "prod",
+        "--host", "https://langfuse.example.com",
+        "--public-key", "pk-lf-prod",
+        "--description", "Production traces",
+      );
+      expect(added.data.description).toBe("Production traces");
+      await cli(
+        "profile", "add", "test",
+        "--host", "https://test.langfuse.example.com",
+        "--public-key", "pk-lf-test",
+      );
+      const listed = (await cli("profile", "list")).data as Array<Record<string, unknown>>;
+      expect(listed.find((profile) => profile.name === "prod")?.description).toBe(
+        "Production traces",
+      );
+      expect(listed.find((profile) => profile.name === "test")).not.toHaveProperty(
+        "description",
+      );
+
+      // A description alone keeps the host, so the stored secret is not cleared.
+      const updated = await cli("profile", "update", "test", "--description", "Shared test project");
+      expect(updated.data.description).toBe("Shared test project");
+      expect(updated.data.secretCleared).toBe(false);
+      expect((await cli("profile", "show", "test")).data.description).toBe(
+        "Shared test project",
+      );
+      const cleared = await cli("profile", "update", "test", "--description", "");
+      expect(cleared.data).not.toHaveProperty("description");
+
+      const invalid = await captureOutput(() =>
+        run(argv("profile", "update", "test", "--description", "two\nlines")),
+      );
+      expect(invalid.stderr).toContain("one line");
+      expect(process.exitCode).toBe(2);
+    } finally {
+      if (originalStore === undefined) delete process.env.LANGFUSE_CREDENTIAL_STORE;
+      else process.env.LANGFUSE_CREDENTIAL_STORE = originalStore;
+      process.exitCode = originalExitCode ?? 0;
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  test("profile --help prints usage instead of failing", async () => {
+    const output = await captureOutput(() =>
+      run(["node", "langfuse-cli", "profile", "add", "--help"]),
+    );
+    expect(output.stdout).toContain("langfuse-cli profile add <name>");
+    expect(output.stdout).toContain("--description");
+    expect(output.stderr).toBe("");
+  });
+});

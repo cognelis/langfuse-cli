@@ -9,6 +9,7 @@ import packageJson from "../../package.json";
 import {
   Config,
   normalizeHost,
+  profileDescription,
   resolveCredentials,
   type ResolvedConnection,
 } from "../config";
@@ -238,21 +239,36 @@ export async function profileAdd(
   if (!publicKey) {
     throw new CliError("profile add requires --public-key <pk>", EXIT_USAGE);
   }
-  context.config.addProfile(name, host, publicKey);
+  const description =
+    context.flags.description === undefined
+      ? undefined
+      : profileDescription(context.flags.description) || undefined;
+  context.config.addProfile(name, host, publicKey, description);
   await context.config.save();
   emit(
     context,
     "profile.add",
-    { profile: name, host: normalizeHost(host), publicKey },
+    {
+      profile: name,
+      ...(description ? { description } : {}),
+      host: normalizeHost(host),
+      publicKey,
+    },
     { profile: name },
     () =>
       renderKeyValues([
         ["profile", name],
+        ...describedRow(description),
         ["host", normalizeHost(host)],
         ["public key", publicKey],
         ["secret key", "missing — run `langfuse-cli auth login`"],
       ]),
   );
+}
+
+/** The description row, present only for a described profile. */
+function describedRow(description?: string): Array<[string, string]> {
+  return description ? [["description", description]] : [];
 }
 
 /**
@@ -269,9 +285,14 @@ export async function profileUpdate(
   // connection.
   const host = context.flags.host ?? context.hostFlag;
   const publicKey = context.flags["public-key"] ?? context.publicKeyFlag;
-  if (host === undefined && publicKey === undefined) {
+  // An empty description clears it.
+  const description =
+    context.flags.description === undefined
+      ? undefined
+      : profileDescription(context.flags.description);
+  if (host === undefined && publicKey === undefined && description === undefined) {
     throw new CliError(
-      "profile update requires --host and/or --public-key",
+      "profile update requires --host, --public-key and/or --description",
       EXIT_USAGE,
     );
   }
@@ -291,7 +312,7 @@ export async function profileUpdate(
       );
     }
   }
-  context.config.updateProfile(name, { host, publicKey });
+  context.config.updateProfile(name, { host, publicKey, description });
   await context.config.save();
   const updated = context.config.profile(name);
   emit(
@@ -299,6 +320,7 @@ export async function profileUpdate(
     "profile.update",
     {
       profile: name,
+      ...(updated?.description ? { description: updated.description } : {}),
       host: updated?.host,
       publicKey: updated?.publicKey,
       secretCleared: hostChanges,
@@ -318,6 +340,7 @@ export async function profileList(context: CommandContext): Promise<void> {
       const profile = context.config.profile(name);
       return {
         name,
+        ...(profile?.description ? { description: profile.description } : {}),
         host: profile?.host ?? "",
         publicKey: profile?.publicKey ?? "",
         hasSecret: Boolean(await context.store.get(name)),
@@ -329,6 +352,8 @@ export async function profileList(context: CommandContext): Promise<void> {
     process.stdout.write("No profiles configured. Run `langfuse-cli init`.\n");
     return;
   }
+  // The description column appears only once some profile is described.
+  const described = profiles.some((profile) => profile.description);
   emit(
     context,
     "profile.list",
@@ -336,10 +361,11 @@ export async function profileList(context: CommandContext): Promise<void> {
     { profile: context.config.currentProfile },
     () =>
       renderTable(
-        ["current", "name", "host", "key"],
+        ["current", "name", ...(described ? ["description"] : []), "host", "key"],
         profiles.map((profile) => [
           profile.current ? "*" : "",
           profile.name,
+          ...(described ? [profile.description ?? ""] : []),
           profile.host,
           profile.hasSecret ? "stored" : "missing",
         ]),
@@ -363,6 +389,7 @@ export async function profileShow(
     "profile.show",
     {
       profile: name,
+      ...(profile.description ? { description: profile.description } : {}),
       host: profile.host,
       publicKey: profile.publicKey,
       hasSecret,
@@ -373,6 +400,7 @@ export async function profileShow(
     () =>
       renderKeyValues([
         ["name", name],
+        ...describedRow(profile.description),
         ["host", profile.host],
         ["public key", profile.publicKey],
         ["secret key", hasSecret ? `stored (${context.store.id})` : "missing"],
