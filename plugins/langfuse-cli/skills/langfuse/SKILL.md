@@ -70,6 +70,11 @@ langfuse-cli api <resource> --help
 langfuse-cli api <resource> <action> --help
 ```
 
+Boolean options take no value: write `--is-root-observation`,
+`--no-is-root-observation`, or `--is-root-observation=false`, never
+`--is-root-observation true`. `--all` fetches every page of a list, and
+`--max-items` caps it.
+
 ### Credentials
 
 Connections are named profiles. A profile stores only the host and public key;
@@ -80,7 +85,8 @@ written to a config file and never appears in the environment on disk.
 # One-time guided setup: masked entry, verified before anything is stored
 langfuse-cli init
 
-# Confirm the active connection end to end
+# Confirm the active connection end to end, once per profile in a session
+# and again after a failure or a credential change
 langfuse-cli doctor --json
 
 # Inspect profiles, or target one for a single command
@@ -104,18 +110,43 @@ profile, so the same command works on a workstation and in a pipeline.
 Choose the profile before the first command of a workflow:
 
 1. If the user names a configured profile, use it.
-2. If the request names an environment, purpose, or project, run
-   `langfuse-cli profile list --json` and match the request against each
-   profile's `name` and `description`. Use the profile that clearly matches.
-3. If several profiles could match or none does, ask the user which profile to
-   use. Never fall back to the default profile for a request about a different
-   environment.
-4. If the request names no environment, use the default profile, the entry
-   with `current: true`.
+2. Decide the environment first, then the profile. Use a production profile
+   only when the request names production or a production profile.
+   Descriptions choose between profiles of the named environment, so a purpose
+   alone does not mean production.
+3. Run `langfuse-cli profile list --json` and match the request against each
+   profile's `name` and `description`. A question about one project that
+   several profiles could answer, or that no profile matches, goes back to the
+   user. A question about a whole environment runs against each matching
+   profile and reports them separately.
+4. If the request names no environment, keep the one already used in the
+   conversation; otherwise use the default profile, the entry with
+   `current: true`.
+5. If a command is blocked, for example by your own permission system, report
+   it and give the user the exact command to run. Never switch profiles to get
+   around it, and never answer with another environment's data instead.
 
 Pass the chosen `--profile <name>` to every command in that workflow and tell
 the user which profile you used. Descriptions are the user's own labels, set
 with `profile add|update --description`; change them only when asked.
+
+### API versions
+
+Commands follow the newest bundled API contract by default, but a self-hosted
+server can run an older Langfuse release whose endpoints and command names
+differ. `langfuse-cli --profile <name> api versions detect` prints the server's
+version and the contract that `--api-version auto` picks.
+
+- When a command fails with `Cannot call deprecated API operation`, or the
+  server answers 404 for an endpoint, rerun it with `--api-version auto`.
+- Suggest `langfuse-cli profile update <name> --api-version auto` so the
+  profile keeps that choice; `--api-version` on a command and
+  `LANGFUSE_API_VERSION` still override the saved value, and
+  `--api-version ""` clears it.
+- Contracts name commands differently. The v3 contracts have `traces list`
+  where the newest has `legacy-traces list`, and their `observations list` is
+  the v1 list while `observations get-many` is v2. Check the names with
+  `langfuse-cli --profile <name> --api-version auto api help`.
 
 ### Output contract
 

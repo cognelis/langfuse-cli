@@ -13,12 +13,7 @@ Documentation: https://langfuse.com/docs/api-and-data-platform/features/cli
 ## Install
 
 ```bash
-# Run directly (recommended)
-npx langfuse-cli api <resource> <action>
-bunx langfuse-cli api <resource> <action>
-
-# Or install globally
-npm i -g langfuse-cli
+npm i -g @cognelis/langfuse-cli
 langfuse-cli api <resource> <action>
 ```
 
@@ -40,12 +35,13 @@ langfuse-cli api <resource> <action> --curl
 
 ## Credentials
 
-Set environment variables:
+On a workstation, use the named profiles that `langfuse-cli init` sets up (see
+SKILL.md). For CI, set environment variables from the provider's secret store:
 
 ```bash
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
-export LANGFUSE_BASE_URL=https://cloud.langfuse.com  
+export LANGFUSE_BASE_URL=https://cloud.langfuse.com
 ```
 
 ## Tips
@@ -56,5 +52,5 @@ export LANGFUSE_BASE_URL=https://cloud.langfuse.com
 - Prefer `observations` over `legacy-observations-v1s` — `observations` is the modern high-performance endpoint (cursor pagination, selective field groups); `legacy-observations-v1s` is the deprecated v1
 - Prefer `metrics` over `legacy-metrics-v1s` for the same reason
 - Prefer `scores` over `legacy-score-v1s` for list/get operations
-- Always query via `observations`, not `traces`, even when the user phrases the request in terms of traces — the `traces` endpoints are outdated (add `--trace-id` to scope to a known trace). See the [Observations API docs](https://langfuse.com/docs/api-and-data-platform/features/observations-api) for the v1 → v2 mapping.
+- Always query via `observations`, not `traces`, even when the user phrases the request in terms of traces — the `traces` endpoints are outdated (add `--trace-id` to scope to a known trace). A self-hosted v3 server needs `--api-version auto`, whose contract names these commands differently; see "API versions" in SKILL.md. See the [Observations API docs](https://langfuse.com/docs/api-and-data-platform/features/observations-api) for the v1 → v2 mapping.
 - Pagination: legacy v1 endpoints use `--limit` and `--page`; modern endpoints (`observations`, `metrics`, `scores`) use cursor-based pagination — pass `--limit`, then thread `meta.cursor` from the response into the next request's `--cursor`
