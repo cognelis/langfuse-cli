@@ -35,6 +35,21 @@ describe("renderTable", () => {
   test("renders a header and rule even with no rows", () => {
     expect(renderTable(["name"], []).split("\n")).toEqual(["name", "----"]);
   });
+
+  test("counts Chinese characters as two terminal columns", () => {
+    const [header, rule, first, second] = renderTable(
+      ["name", "description", "host"],
+      [
+        ["prod", "生产库只读用的", "a"],
+        ["test", "x", "b"],
+      ],
+    ).split("\n");
+    // Seven wide characters take 14 columns, wider than the header.
+    expect(header).toBe("name  description     host");
+    expect(rule).toBe("----  --------------  ----");
+    expect(first).toBe("prod  生产库只读用的  a");
+    expect(second).toBe(`test  x${" ".repeat(13)}  b`);
+  });
 });
 
 describe("renderKeyValues", () => {
