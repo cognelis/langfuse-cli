@@ -13,13 +13,18 @@ import {
   resolveCredentials,
   type ResolvedConnection,
 } from "../config";
-import { resolveContractVersion } from "../contracts/loader";
+import {
+  autoContractVersion,
+  loadContractCatalog,
+  resolveContractVersion,
+} from "../contracts/loader";
 import type { CredentialStore } from "../credentials";
 import { CliError, EXIT_CONFIG, EXIT_USAGE } from "../errors";
 import {
   CHECK_API,
   CHECK_AUTHENTICATION,
   CHECK_CONFIGURATION,
+  CHECK_CONTRACT,
   CHECK_CREDENTIALS,
   DoctorReport,
 } from "../doctor";
@@ -47,6 +52,11 @@ export interface CommandContext {
   hostFlag?: string;
   publicKeyFlag?: string;
   apiVersionFlag?: string;
+  /**
+   * The API contract selector in effect: --api-version, then
+   * LANGFUSE_API_VERSION, then the selected profile's saved version.
+   */
+  apiVersion?: string;
   /** Raw flag map for command-specific options. */
   flags: Record<string, string>;
   booleans: Set<string>;
@@ -606,6 +616,22 @@ export async function doctor(context: CommandContext): Promise<void> {
       if (auth.ok) report.pass(CHECK_AUTHENTICATION, auth.message);
       else report.fail(CHECK_AUTHENTICATION, auth.message);
     }
+
+    // The health probe already returned the server version, so this costs no
+    // request.
+    if (health.ok && health.version) {
+      try {
+        report.pass(
+          CHECK_CONTRACT,
+          await contractFit(context, host, health.version, connection?.profile),
+        );
+      } catch (error) {
+        report.skip(
+          CHECK_CONTRACT,
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
   }
 
   const payload = report.toJSON();
@@ -621,4 +647,40 @@ export async function doctor(context: CommandContext): Promise<void> {
     );
   }
   if (!report.healthy) process.exitCode = report.exitCode;
+}
+
+/**
+ * Whether the API contract in use is the one `--api-version auto` picks for
+ * the server, and how to switch to it when it is not.
+ */
+async function contractFit(
+  context: CommandContext,
+  host: string,
+  reportedVersion: string,
+  profile?: string,
+): Promise<string> {
+  const catalog = await loadContractCatalog();
+  const server = reportedVersion.replace(/^v/, "");
+  const fit = autoContractVersion(catalog, server);
+  if (!fit) return `no bundled API contract fits Langfuse ${server}`;
+  // Resolving auto would probe the server again for the version already in hand.
+  const inUse =
+    context.apiVersion === "auto"
+      ? fit
+      : (
+          await resolveContractVersion({
+            requested: context.apiVersion,
+            host,
+            timeoutMs: context.timeoutMs,
+            catalog,
+          })
+        ).version;
+  if (inUse === fit) return `API contract ${inUse} fits Langfuse ${server}`;
+  // --api-version and LANGFUSE_API_VERSION outrank a profile's saved version,
+  // so saving auto with the profile helps only when neither chose this contract.
+  const fix =
+    profile && context.apiVersion === context.config.profile(profile)?.apiVersion
+      ? `run \`langfuse-cli profile update ${profile} --api-version auto\``
+      : "pass --api-version auto or set LANGFUSE_API_VERSION=auto";
+  return `API contract ${inUse} does not fit Langfuse ${server} (auto picks ${fit}): ${fix}`;
 }

@@ -10,6 +10,38 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+### Added
+
+- `doctor` ends with a `contract` check. When the server version from its
+  health probe would make `--api-version auto` pick a different API contract
+  than the one in use — a self-hosted Langfuse 3.162.0 against the bundled
+  4.16.0, for example — its message names both versions and the fix:
+  `langfuse-cli profile update <profile> --api-version auto`, or
+  `--api-version auto` / `LANGFUSE_API_VERSION=auto` without a profile. The
+  check is advice: it passes, sends no extra request, and leaves `healthy` and
+  the exit code unchanged.
+
+### Changed
+
+- The bundled skill explains when to query traces or observations under each API
+  contract, how to count traces and failed traces in a time window, that omitted
+  `--fields` groups come back empty rather than missing, and that `projects list`
+  shows only the current key's project. Its CLI reference uses `api schema --json`
+  and `LANGFUSE_HOST`.
+
+### Fixed
+
+- Action help, such as `langfuse-cli api traces list --help`, prints every
+  option and body-field description in full, wrapped to the terminal width
+  (100 columns when stdout is not a terminal), instead of cutting it with "…".
+  The bundled contracts no longer cut descriptions at 200 characters either, so
+  `--filter` shows its columns and examples and `api schema --json` carries the
+  whole text.
+- `api versions list|current|detect` honor `--json` and `--raw`, emitting
+  `{"versions": [...]}`, `{"version", "requested"}` (plus `"detected"` under
+  `auto`) and `{"detected", "version"}`. Without a format flag they print the
+  same plain text as before, also in a pipe.
+
 ## [2.3.0] - 2026-10-12
 
 ### Added

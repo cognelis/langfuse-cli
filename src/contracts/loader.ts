@@ -127,6 +127,18 @@ function compatibleEntry(
     .sort((left, right) => compareVersion(right.version, left.version))[0];
 }
 
+/**
+ * The bundled contract `--api-version auto` picks for a server version: that
+ * exact snapshot, else the newest one of the same major that is not newer.
+ */
+export function autoContractVersion(
+  catalog: ApiContractCatalog,
+  serverVersion: string,
+): string | undefined {
+  const exact = catalog.versions.find((entry) => entry.version === serverVersion);
+  return (exact ?? compatibleEntry(catalog.versions, serverVersion))?.version;
+}
+
 export async function resolveContractVersion(params: {
   requested?: string;
   host: string;
@@ -140,15 +152,14 @@ export async function resolveContractVersion(params: {
   }
   if (requested === "auto") {
     const detected = await detectServerVersion(params.host, params.timeoutMs);
-    const exact = catalog.versions.find((entry) => entry.version === detected);
-    const compatible = exact ?? compatibleEntry(catalog.versions, detected);
-    if (!compatible) {
+    const version = autoContractVersion(catalog, detected);
+    if (!version) {
       throw new CliError(
         `No bundled API contract is compatible with detected server ${detected}`,
         EXIT_CONFIG,
       );
     }
-    return { catalog, version: compatible.version, detected };
+    return { catalog, version, detected };
   }
   const exact = catalog.versions.find((entry) => entry.version === requested);
   if (exact) return { catalog, version: exact.version };

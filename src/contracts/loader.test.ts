@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { resolveContractVersion } from "./loader";
+import { autoContractVersion, resolveContractVersion } from "./loader";
 import type { ApiContractCatalog } from "./types";
 
 const catalog: ApiContractCatalog = {
@@ -43,5 +43,18 @@ describe("API contract version resolution", () => {
     await expect(resolve("5")).rejects.toThrow(
       "No bundled API contract for major version 5. Available majors: 3, 4",
     );
+  });
+});
+
+describe("auto contract selection", () => {
+  test("picks the exact snapshot, else the newest older one of the same major", () => {
+    expect(autoContractVersion(catalog, "3.150.0")).toBe("3.150.0");
+    expect(autoContractVersion(catalog, "3.162.0")).toBe("3.150.0");
+    expect(autoContractVersion(catalog, "4.16.0")).toBe("4.10.0");
+  });
+
+  test("picks nothing for a server no bundled snapshot covers", () => {
+    expect(autoContractVersion(catalog, "5.0.0")).toBeUndefined();
+    expect(autoContractVersion(catalog, "2.9.0")).toBeUndefined();
   });
 });

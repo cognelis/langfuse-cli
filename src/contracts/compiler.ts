@@ -301,12 +301,12 @@ function parameterDefaults(location: string): { style: string; explode: boolean 
 }
 
 // Descriptions can be multi-kilobyte markdown documents in the spec; contracts
-// carry a single collapsed line capped for help output.
+// carry each one whole, collapsed to a single line that help wraps to the
+// terminal. Cutting it would hide the filter columns and examples it documents.
 function summarizeDescription(raw: unknown): string | undefined {
   if (typeof raw !== "string") return undefined;
   const collapsed = raw.replace(/\s+/g, " ").trim();
-  if (!collapsed) return undefined;
-  return collapsed.length > 200 ? `${collapsed.slice(0, 199)}…` : collapsed;
+  return collapsed || undefined;
 }
 
 function enumValues(schema: Record<string, any>): Array<string | number> | undefined {

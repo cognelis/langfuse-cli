@@ -86,6 +86,8 @@ interface RuntimeConfig {
   apiVersion?: string;
   timeoutMs: number;
   outputMode: OutputMode;
+  /** The format a flag asked for; undefined when `auto` chose `outputMode`. */
+  outputFlag?: OutputMode;
   curl: boolean;
   showSecrets: boolean;
   outFile?: string;
@@ -155,13 +157,14 @@ function parseEnv(content: string): Record<string, string> {
 }
 
 /**
- * Chooses the output format.
+ * The output format --output, --json or --raw asks for, or undefined for
+ * `auto`.
  *
  * `auto` — the default — prints a table on a terminal and the JSON envelope
  * everywhere else, so a human reads columns while a pipeline receives parseable
  * output without having to pass a flag.
  */
-function resolveOutputMode(globals: ParsedGlobals): OutputMode {
+function requestedOutputMode(globals: ParsedGlobals): OutputMode | undefined {
   const requested = globals.values.output;
   if (requested !== undefined) {
     if (requested === "json") return "json";
@@ -175,7 +178,7 @@ function resolveOutputMode(globals: ParsedGlobals): OutputMode {
   }
   if (globals.booleans.has("raw")) return "raw";
   if (globals.booleans.has("json")) return "json";
-  return process.stdout.isTTY ? "table" : "json";
+  return undefined;
 }
 
 async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
@@ -198,7 +201,8 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   if (globals.booleans.has("json") && globals.booleans.has("raw")) {
     throw new CliError("--json and --raw are mutually exclusive");
   }
-  const outputMode = resolveOutputMode(globals);
+  const outputFlag = requestedOutputMode(globals);
+  const outputMode = outputFlag ?? (process.stdout.isTTY ? "table" : "json");
   const configFilePath = globals.values["config-file"] ?? defaultConfigPath();
   const configFile = await Config.load(configFilePath);
   // The file fallback lives beside the config it belongs to, so pointing
@@ -247,6 +251,7 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
       (profile ? configFile.profile(profile)?.apiVersion : undefined),
     timeoutMs,
     outputMode,
+    outputFlag,
     curl: globals.booleans.has("curl"),
     showSecrets: globals.booleans.has("show-secrets"),
     outFile: globals.values["out-file"],
@@ -457,8 +462,32 @@ function flagUsage(name: string, kind: ValueKind): string {
     : `--${name} <${kindLabel(kind)}>`;
 }
 
-function clip(text: string, max = 100): string {
-  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+/** Where option descriptions start: two spaces, the option padded to 38, one space. */
+const DESCRIPTION_COLUMN = 2 + 38 + 1;
+
+/**
+ * Appends `text` to `lead`, word-wrapped to the terminal (100 columns when
+ * stdout is not one), with continuation lines under the description column.
+ * Nothing is cut: a word longer than the line stays whole, and at least 20
+ * columns are left for text however narrow the terminal is.
+ */
+function wrapDescription(lead: string, text: string): string {
+  const width = Math.max(
+    (process.stdout.isTTY && process.stdout.columns) || 100,
+    DESCRIPTION_COLUMN + 20,
+  );
+  const indent = " ".repeat(DESCRIPTION_COLUMN);
+  // An option wider than its column puts the description on the next line.
+  const lines = lead.length > DESCRIPTION_COLUMN ? [lead.trimEnd(), indent] : [lead];
+  let empty = true;
+  for (const word of text.trim().split(/\s+/)) {
+    const last = lines.length - 1;
+    if (empty) lines[last] += word;
+    else if (lines[last].length + 1 + word.length <= width) lines[last] += ` ${word}`;
+    else lines.push(indent + word);
+    empty = false;
+  }
+  return lines.join("\n");
 }
 
 function annotate(
@@ -468,10 +497,10 @@ function annotate(
 ): string {
   const notes = [
     ...(values?.length ? [`one of: ${values.join(", ")}`] : []),
-    ...(description ? [clip(description)] : []),
+    ...(description ? [description] : []),
   ];
   if (notes.length === 0) return `  ${base}`;
-  return `  ${base.padEnd(38)} ${notes.join(" — ")}`;
+  return wrapDescription(`  ${base.padEnd(38)} `, notes.join(" — "));
 }
 
 function kindText(kind: ValueKind, itemKind?: ValueKind): string {
@@ -1218,35 +1247,50 @@ export async function runApi(
       process.stdout.write(VERSIONS_USAGE);
       return;
     }
+    let data: Record<string, unknown>;
+    let text: string;
     if (action === "list") {
-      process.stdout.write(
-        `${catalog.versions.map((entry) => entry.version).join("\n")}\n`,
-      );
-      return;
-    }
-    if (action === "current") {
+      const versions = catalog.versions.map((entry) => entry.version);
+      data = { versions };
+      text = versions.join("\n");
+    } else if (action === "current") {
+      const requested = config.apiVersion ?? "latest";
       const resolved = await resolveContractVersion({
-        requested: config.apiVersion,
+        requested,
         host: config.host,
         timeoutMs: config.timeoutMs,
         catalog,
       });
-      process.stdout.write(`${resolved.version}\n`);
-      return;
-    }
-    if (action === "detect") {
+      data = {
+        version: resolved.version,
+        requested,
+        ...(resolved.detected ? { detected: resolved.detected } : {}),
+      };
+      text = resolved.version;
+    } else if (action === "detect") {
       const resolved = await resolveContractVersion({
         requested: "auto",
         host: config.host,
         timeoutMs: config.timeoutMs,
         catalog,
       });
-      process.stdout.write(
-        `${resolved.detected} -> ${resolved.version}\n`,
-      );
-      return;
+      data = { detected: resolved.detected, version: resolved.version };
+      text = `${resolved.detected} -> ${resolved.version}`;
+    } else {
+      throw new CliError(`Unknown versions action: ${action}`);
     }
-    throw new CliError(`Unknown versions action: ${action}`);
+    // Plain text unless a flag asks for a format: scripts capture
+    // `$(langfuse-cli api versions current)` from a pipe, where `auto` means JSON.
+    const mode = config.outputFlag;
+    process.stdout.write(
+      mode === "json" || mode === "raw"
+        ? renderSuccess(mode, `api.versions.${action}`, data, {
+            profile: config.profile,
+            host: config.host,
+          })
+        : `${text}\n`,
+    );
+    return;
   }
   const resolved = await resolveContractVersion({
     requested: config.apiVersion,
@@ -1390,6 +1434,7 @@ function commandContext(
     hostFlag: config.hostFlag,
     publicKeyFlag: config.publicKeyFlag,
     apiVersionFlag: config.apiVersionFlag,
+    apiVersion: config.apiVersion,
     flags: sub.values,
     booleans: sub.booleans,
   };

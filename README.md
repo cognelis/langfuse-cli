@@ -131,6 +131,12 @@ langfuse-cli doctor --json
 
 It checks the CLI version, connection configuration, credential availability, API connectivity, and authentication **in that order** — nothing downstream is meaningful until the step before it passes. A completed run always writes its ordered `pass`/`fail`/`skipped` report to stdout, then exits with the code matching the first failure, so scripts should capture stdout before testing the status.
 
+A last `contract` check compares the server version from that same health probe with the API contract in use. When `--api-version auto` would pick a different contract — a self-hosted Langfuse 3.162.0 against the bundled 4.16.0, for example — its message names both versions and the fix: `langfuse-cli profile update <profile> --api-version auto`, or `--api-version auto` / `LANGFUSE_API_VERSION=auto` without a profile. It is advice, so the check passes and never changes `healthy` or the exit code:
+
+```text
+contract        pass    API contract 4.16.0 does not fit Langfuse 3.162.0 (auto picks 3.150.0): run `langfuse-cli profile update selfhosted --api-version auto`
+```
+
 ## Query Langfuse
 
 ```sh
@@ -168,7 +174,16 @@ langfuse-cli --api-version 3 api traces list
 langfuse-cli --api-version 3.150.0 api traces list
 langfuse-cli --api-version auto api prompts list   # detect via /api/public/health
 langfuse-cli profile update selfhosted --api-version auto   # or save it with the profile
+
+# Bundled snapshots, the one in use, and what auto picks for the server
+langfuse-cli api versions list
+langfuse-cli api versions current --json   # data: {"version":"4.16.0","requested":"latest"}
+langfuse-cli api versions detect           # 3.162.0 -> 3.150.0
 ```
+
+Action help prints every option's full description, wrapped to the terminal width (100 columns when stdout is not a terminal) with continuation lines under the description column; long ones such as `--filter` document their columns and examples in full.
+
+`api versions list|current|detect` print plain text — one version per line, the resolved version, `<server> -> <contract>` — even in a pipe, so `$(langfuse-cli api versions current)` keeps working. With `--json` or `--raw` they emit `{"versions": [...]}`, `{"version", "requested"}` (plus `"detected"` under `auto`) and `{"detected", "version"}` in the usual envelope or as the bare payload.
 
 OpenAPI tags and explicit route versions remain accepted aliases, for example `scores-v3 list` for the canonical `scores list`. Verbose OpenAPI `operationId` values remain available in `api schema --json` but are never required as CLI commands.
 

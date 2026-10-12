@@ -4,6 +4,10 @@
 // a human reads them in the order they actually fail: nothing downstream is
 // meaningful until the step before it passes. A completed run always writes the
 // full report, then exits with the code matching the first failure.
+//
+// The contract check is advice: an API contract that does not fit the server
+// breaks API calls, not the connection, so it passes with the fix in its message
+// and never changes `healthy` or the exit code.
 import { EXIT_CONFIG, EXIT_NETWORK } from "./errors";
 import { renderTable } from "./table";
 
@@ -20,6 +24,7 @@ export const CHECK_CONFIGURATION = 1;
 export const CHECK_CREDENTIALS = 2;
 export const CHECK_API = 3;
 export const CHECK_AUTHENTICATION = 4;
+export const CHECK_CONTRACT = 5;
 
 const CHECK_NAMES = [
   "version",
@@ -27,6 +32,7 @@ const CHECK_NAMES = [
   "credentials",
   "api",
   "authentication",
+  "contract",
 ] as const;
 
 export class DoctorReport {
@@ -39,6 +45,7 @@ export class DoctorReport {
       skipped("credentials", "credentials have not been checked"),
       skipped("api", "API connectivity has not been checked"),
       skipped("authentication", "authentication has not been checked"),
+      skipped("contract", "API contract fit has not been checked"),
     ];
   }
 
@@ -48,6 +55,11 @@ export class DoctorReport {
 
   fail(index: number, message: string): void {
     this.set(index, "fail", message);
+  }
+
+  /** Leaves a check unchecked, saying why. */
+  skip(index: number, message: string): void {
+    this.set(index, "skipped", message);
   }
 
   get healthy(): boolean {

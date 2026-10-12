@@ -4,6 +4,7 @@ import {
   CHECK_API,
   CHECK_AUTHENTICATION,
   CHECK_CONFIGURATION,
+  CHECK_CONTRACT,
   CHECK_CREDENTIALS,
   DoctorReport,
 } from "./doctor";
@@ -11,12 +12,14 @@ import {
 describe("doctor report", () => {
   test("has a stable, ordered shape a script can index", () => {
     const { checks } = new DoctorReport("1.2.3").toJSON();
+    // New checks are appended, so existing indexes keep their meaning.
     expect(checks.map((check) => check.name)).toEqual([
       "version",
       "configuration",
       "credentials",
       "api",
       "authentication",
+      "contract",
     ]);
     expect(checks[0]).toMatchObject({ status: "pass", message: "langfuse-cli 1.2.3" });
   });
@@ -74,8 +77,8 @@ describe("doctor report", () => {
     const report = new DoctorReport("1.0.0");
     report.fail(CHECK_CONFIGURATION, "no profile");
     const lines = report.render().split("\n");
-    // header + rule + five checks
-    expect(lines).toHaveLength(7);
+    // header + rule + six checks
+    expect(lines).toHaveLength(8);
     expect(lines[0]).toBe("name            status   message");
     expect(lines[1]).toMatch(/^-+ {2}-+ {2}-+$/);
     expect(lines[3]).toContain("configuration");
@@ -92,6 +95,22 @@ describe("doctor report", () => {
     expect(rendered).toContain("pass");
     expect(rendered).toContain("fail");
     expect(rendered).toContain("skipped");
+  });
+
+  test("contract advice and a skipped contract check leave a healthy report healthy", () => {
+    const advised = new DoctorReport("1.0.0");
+    advised.pass(CHECK_CONTRACT, "API contract 4.16.0 does not fit Langfuse 3.162.0");
+    expect(advised.healthy).toBe(true);
+    expect(advised.exitCode).toBe(0);
+
+    const skipped = new DoctorReport("1.0.0");
+    skipped.skip(CHECK_CONTRACT, "Unknown API version bogus");
+    expect(skipped.toJSON().checks[CHECK_CONTRACT]).toEqual({
+      name: "contract",
+      status: "skipped",
+      message: "Unknown API version bogus",
+    });
+    expect(skipped.exitCode).toBe(0);
   });
 
   test("toJSON returns copies, so a caller cannot mutate the report", () => {

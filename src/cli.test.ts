@@ -20,7 +20,11 @@ import { Config } from "./config";
 import { fileStore } from "./credentials";
 import { CliError } from "./errors";
 import { compileApiContract } from "./contracts/compiler";
-import { loadContractCatalog, setEmbeddedContracts } from "./contracts/loader";
+import {
+  autoContractVersion,
+  loadContractCatalog,
+  setEmbeddedContracts,
+} from "./contracts/loader";
 import type { ApiOperation } from "./contracts/types";
 
 async function captureOutput(
@@ -100,6 +104,20 @@ async function scratchCli(
     else process.env.LANGFUSE_API_VERSION = originalVersion;
     process.exitCode = originalExitCode ?? 0;
     await rm(directory, { recursive: true, force: true });
+  }
+}
+
+/** Runs `fn` as if stdout were a terminal `columns` wide, or not a terminal. */
+async function withTerminal<T>(
+  columns: number | undefined,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const original = { isTTY: process.stdout.isTTY, columns: process.stdout.columns };
+  Object.assign(process.stdout, { isTTY: columns !== undefined, columns });
+  try {
+    return await fn();
+  } finally {
+    Object.assign(process.stdout, original);
   }
 }
 
@@ -795,6 +813,67 @@ describe("API version reporting", () => {
       ),
     ).rejects.toThrow("Unknown API version bogus");
   });
+
+  test("versions actions emit the envelope with --json and the payload with --raw", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (): Promise<Response> =>
+      Response.json({ version: "3.216.1" })) as typeof fetch;
+    const envelope = async (action: string, apiVersion?: string) =>
+      JSON.parse(
+        (
+          await captureOutput(() =>
+            runApi({ ...config, apiVersion, outputFlag: "json" }, ["versions", action], catalog),
+          )
+        ).stdout,
+      );
+    try {
+      expect(await envelope("list")).toEqual({
+        schemaVersion: "1",
+        command: "api.versions.list",
+        data: { versions: ["3.150.0", "3.216.0", "4.10.0"] },
+        meta: { host: "http://localhost:3000" },
+      });
+      expect((await envelope("current")).data).toEqual({
+        version: "4.10.0",
+        requested: "latest",
+      });
+      expect((await envelope("current", "3")).data).toEqual({
+        version: "3.216.0",
+        requested: "3",
+      });
+      expect((await envelope("current", "auto")).data).toEqual({
+        version: "3.216.0",
+        requested: "auto",
+        detected: "3.216.1",
+      });
+      const detected = await envelope("detect");
+      expect(detected.command).toBe("api.versions.detect");
+      expect(detected.data).toEqual({ detected: "3.216.1", version: "3.216.0" });
+
+      const raw = await captureOutput(() =>
+        runApi({ ...config, outputFlag: "raw" }, ["versions", "detect"], catalog),
+      );
+      expect(JSON.parse(raw.stdout)).toEqual({ detected: "3.216.1", version: "3.216.0" });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  test("versions actions stay plain text when auto picks JSON for a pipe", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (): Promise<Response> =>
+      Response.json({ version: "3.216.1" })) as typeof fetch;
+    // A pipe without a format flag: outputMode is json, outputFlag is unset.
+    const piped = { ...config, outputMode: "json" };
+    try {
+      const list = await captureOutput(() => runApi(piped, ["versions", "list"], catalog));
+      expect(list.stdout).toBe("3.150.0\n3.216.0\n4.10.0\n");
+      const detect = await captureOutput(() => runApi(piped, ["versions", "detect"], catalog));
+      expect(detect.stdout).toBe("3.216.1 -> 3.216.0\n");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("pagination with --all", () => {
@@ -1154,6 +1233,45 @@ describe.skipIf(!contractsLoaded)("api help", () => {
       expect(versions.stderr).toBe("");
       expect(versions.stdout).toContain("Usage: langfuse-cli api versions <action>");
     }));
+
+  test("prints option descriptions whole, wrapped under the description column", () =>
+    scratchCli(async (cli) => {
+      const help = (columns?: number) =>
+        withTerminal(columns, async () =>
+          (await cli("--api-version", "3.150.0", "api", "traces", "list", "--help")).stdout,
+        );
+      const widest = (text: string) =>
+        Math.max(...text.split("\n").map((line) => line.length));
+
+      const piped = await help();
+      expect(piped).not.toContain("…");
+      // Past both the old 100-character help cut and the old 200-character contract cut.
+      expect(piped.replace(/\s+/g, " ")).toContain(
+        "excluded 'metrics' returns -1 for 'totalCost' and 'latency'.",
+      );
+      const lines = piped.split("\n");
+      const fields = lines.findIndex((line) => line.startsWith("  --fields "));
+      expect(lines[fields + 1]).toMatch(/^ {41}\S/);
+      // Not a terminal: 100 columns, used to the full.
+      expect(widest(piped)).toBeLessThanOrEqual(100);
+      expect(widest(piped)).toBeGreaterThan(90);
+
+      expect(widest(await help(90))).toBeLessThanOrEqual(90);
+    }));
+
+  test("api versions honors --json and --raw and stays plain text without them", () =>
+    scratchCli(async (cli) => {
+      const { versions } = await loadContractCatalog();
+      const all = versions.map((entry) => entry.version);
+
+      const json = JSON.parse((await cli("--json", "api", "versions", "list")).stdout);
+      expect(json.command).toBe("api.versions.list");
+      expect(json.data).toEqual({ versions: all });
+      expect(JSON.parse((await cli("--raw", "api", "versions", "list")).stdout)).toEqual({
+        versions: all,
+      });
+      expect((await cli("api", "versions", "list")).stdout).toBe(`${all.join("\n")}\n`);
+    }));
 });
 
 describe("profile API versions", () => {
@@ -1227,4 +1345,99 @@ describe("profile API versions", () => {
       const shown = JSON.parse((await cli("--json", "profile", "show", "selfhosted")).stdout);
       expect(shown.data.apiVersion).toBe("3");
     }));
+});
+
+describe.skipIf(!contractsLoaded)("doctor contract check", () => {
+  /**
+   * Answers the two requests doctor makes — the health probe, reporting
+   * `version`, and the project list — recording each one, with a secret key in
+   * the environment so no keyring is involved.
+   */
+  async function againstServer(
+    version: string,
+    fn: (requests: string[]) => Promise<void>,
+  ): Promise<void> {
+    const originalFetch = globalThis.fetch;
+    const originalSecret = process.env.LANGFUSE_SECRET_KEY;
+    const requests: string[] = [];
+    globalThis.fetch = (async (url: string | URL): Promise<Response> => {
+      requests.push(String(url));
+      return String(url).endsWith("/api/public/health")
+        ? Response.json({ status: "OK", version })
+        : Response.json({ data: [{ name: "test" }] });
+    }) as typeof fetch;
+    process.env.LANGFUSE_SECRET_KEY = "sk-lf-test";
+    try {
+      await fn(requests);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalSecret === undefined) delete process.env.LANGFUSE_SECRET_KEY;
+      else process.env.LANGFUSE_SECRET_KEY = originalSecret;
+    }
+  }
+
+  const selfhosted = [
+    "profile", "add", "selfhosted",
+    "--host", "https://langfuse.internal.example.com",
+    "--public-key", "pk-lf-self",
+  ];
+
+  test("names the profile in the fix when the contract in use does not fit the server", () =>
+    scratchCli((cli) =>
+      againstServer("3.162.0", async (requests) => {
+        const catalog = await loadContractCatalog();
+        const fit = autoContractVersion(catalog, "3.162.0");
+        await cli(...selfhosted);
+
+        const report = JSON.parse((await cli("--json", "--profile", "selfhosted", "doctor")).stdout);
+        expect(report.data.checks[5]).toEqual({
+          name: "contract",
+          status: "pass",
+          message: `API contract ${catalog.latest} does not fit Langfuse 3.162.0 (auto picks ${fit}): run \`langfuse-cli profile update selfhosted --api-version auto\``,
+        });
+        // Advice only: still healthy, still exit 0, and no request beyond the usual two.
+        expect(report.data.healthy).toBe(true);
+        expect(process.exitCode ?? 0).toBe(0);
+        expect(requests).toHaveLength(2);
+
+        const table = await cli("--output", "table", "--profile", "selfhosted", "doctor");
+        expect(table.stdout).toMatch(
+          /^contract +pass +API contract \S+ does not fit Langfuse 3\.162\.0 /m,
+        );
+      }),
+    ));
+
+  test("gives the flag or variable as the fix without a profile, or when one of them chose the contract", () =>
+    scratchCli((cli) =>
+      againstServer("3.162.0", async () => {
+        const fix = "pass --api-version auto or set LANGFUSE_API_VERSION=auto";
+        const contract = async (...args: string[]): Promise<string> =>
+          JSON.parse((await cli("--json", ...args, "doctor")).stdout).data.checks[5].message;
+
+        expect(
+          await contract("--host", "https://langfuse.internal.example.com", "--public-key", "pk-lf-self"),
+        ).toEndWith(fix);
+
+        // Saving auto with the profile would not beat LANGFUSE_API_VERSION.
+        await cli(...selfhosted);
+        process.env.LANGFUSE_API_VERSION = "4";
+        expect(await contract("--profile", "selfhosted")).toEndWith(fix);
+      }),
+    ));
+
+  test("reports a fit under auto without probing the server again", () =>
+    scratchCli((cli) =>
+      againstServer("3.162.0", async (requests) => {
+        const fit = autoContractVersion(await loadContractCatalog(), "3.162.0");
+        await cli(...selfhosted, "--api-version", "auto");
+
+        const report = JSON.parse((await cli("--json", "--profile", "selfhosted", "doctor")).stdout);
+        expect(report.data.checks[5]).toEqual({
+          name: "contract",
+          status: "pass",
+          message: `API contract ${fit} fits Langfuse 3.162.0`,
+        });
+        expect(requests).toHaveLength(2);
+      }),
+    ));
 });
