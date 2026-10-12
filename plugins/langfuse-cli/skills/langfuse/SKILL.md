@@ -101,8 +101,8 @@ the key from a masked prompt or from `--secret-key-stdin`. If no profile is
 configured, ask the user to run `langfuse-cli init` themselves rather than
 collecting their key.
 
-For CI, take `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`
-from the provider's secret store. Environment credentials override the active
+For CI, take `LANGFUSE_HOST` (or `LANGFUSE_BASE_URL`), `LANGFUSE_PUBLIC_KEY`
+and `LANGFUSE_SECRET_KEY` from the provider's secret store. Environment credentials override the active
 profile, so the same command works on a workstation and in a pipeline.
 
 ### Choosing a profile
@@ -135,7 +135,9 @@ with `profile add|update --description`; change them only when asked.
 Commands follow the newest bundled API contract by default, but a self-hosted
 server can run an older Langfuse release whose endpoints and command names
 differ. `langfuse-cli --profile <name> api versions detect` prints the server's
-version and the contract that `--api-version auto` picks.
+version and the contract that `--api-version auto` picks, and `doctor` ends
+with a `contract` check that says when the contract in use does not fit the
+server and how to fix it.
 
 - When a command fails with `Cannot call deprecated API operation`, or the
   server answers 404 for an endpoint, rerun it with `--api-version auto`.
@@ -147,6 +149,30 @@ version and the contract that `--api-version auto` picks.
   where the newest has `legacy-traces list`, and their `observations list` is
   the v1 list while `observations get-many` is v2. Check the names with
   `langfuse-cli --profile <name> --api-version auto api help`.
+
+### Traces, observations, and counts
+
+- Under the newest contract, query observations rather than traces:
+  `observations list` is the v2 endpoint with cursor pagination and `--fields`
+  groups, and `legacy-traces` is deprecated. Under a v3 contract, `traces list`
+  lists traces, `observations list` is the v1 list with page numbers, and
+  `observations get-many` is v2.
+- `--fields` returns only the groups you name. On `traces list` they are
+  `core` (always), `io`, `scores`, `observations`, and `metrics`. A group you
+  leave out still appears but empty: `[]` for observations and scores, `-1`
+  for latency and totalCost, no input or output. Never report it as missing
+  data.
+- Traces in a window: `traces list --from-timestamp <ISO> --to-timestamp <ISO>
+  --limit 1`, then read `data.meta.totalItems`. Traces with errors:
+  `observations list --level ERROR --from-start-time <ISO> --to-start-time
+  <ISO> --all`, then count distinct `traceId`. Traces filter time with
+  `--from-timestamp`/`--to-timestamp`, observations with
+  `--from-start-time`/`--to-start-time`.
+- `--all` fetches every page; its `data.meta` reports `pages`, `fetchedItems`,
+  `totalItems`, and `truncated` instead of one page's `page`, `limit`,
+  `totalItems`, and `totalPages`.
+- `projects list` returns only the project of the current API key; listing
+  every project needs an organization-level key.
 
 ### Output contract
 

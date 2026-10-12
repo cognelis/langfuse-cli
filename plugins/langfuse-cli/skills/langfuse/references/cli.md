@@ -21,7 +21,7 @@ langfuse-cli api <resource> <action>
 
 ```bash
 # List all resources and auth info
-langfuse-cli api __schema
+langfuse-cli api schema --json
 
 # List actions for a resource
 langfuse-cli api <resource> --help
@@ -41,7 +41,7 @@ SKILL.md). For CI, set environment variables from the provider's secret store:
 ```bash
 export LANGFUSE_PUBLIC_KEY=pk-lf-...
 export LANGFUSE_SECRET_KEY=sk-lf-...
-export LANGFUSE_BASE_URL=https://cloud.langfuse.com
+export LANGFUSE_HOST=https://cloud.langfuse.com   # LANGFUSE_BASE_URL also works
 ```
 
 ## Tips
@@ -52,5 +52,5 @@ export LANGFUSE_BASE_URL=https://cloud.langfuse.com
 - Prefer `observations` over `legacy-observations-v1s` — `observations` is the modern high-performance endpoint (cursor pagination, selective field groups); `legacy-observations-v1s` is the deprecated v1
 - Prefer `metrics` over `legacy-metrics-v1s` for the same reason
 - Prefer `scores` over `legacy-score-v1s` for list/get operations
-- Always query via `observations`, not `traces`, even when the user phrases the request in terms of traces — the `traces` endpoints are outdated (add `--trace-id` to scope to a known trace). A self-hosted v3 server needs `--api-version auto`, whose contract names these commands differently; see "API versions" in SKILL.md. See the [Observations API docs](https://langfuse.com/docs/api-and-data-platform/features/observations-api) for the v1 → v2 mapping.
-- Pagination: legacy v1 endpoints use `--limit` and `--page`; modern endpoints (`observations`, `metrics`, `scores`) use cursor-based pagination — pass `--limit`, then thread `meta.cursor` from the response into the next request's `--cursor`
+- Always query via `observations`, not `traces`, even when the user phrases the request in terms of traces — the `traces` endpoints are outdated (add `--trace-id` to scope to a known trace). A self-hosted v3 server needs `--api-version auto`, whose contract names these commands differently; see "Traces, observations, and counts" in SKILL.md. See the [Observations API docs](https://langfuse.com/docs/api-and-data-platform/features/observations-api) for the v1 → v2 mapping.
+- Pagination: legacy v1 endpoints use `--limit` and `--page`; modern endpoints (`observations`, `metrics`, `scores`) use cursor-based pagination — pass `--limit`, then thread `meta.cursor` from the response into the next request's `--cursor`. Under a v3 contract `observations list` is the v1 list and uses pages; `--all` handles either kind
