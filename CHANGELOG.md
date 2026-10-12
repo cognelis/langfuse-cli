@@ -10,6 +10,8 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-10-12
+
 ### Added
 
 - `doctor` ends with a `contract` check. When the server version from its
