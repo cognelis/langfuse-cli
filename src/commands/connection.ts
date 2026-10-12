@@ -13,6 +13,7 @@ import {
   resolveCredentials,
   type ResolvedConnection,
 } from "../config";
+import { resolveContractVersion } from "../contracts/loader";
 import type { CredentialStore } from "../credentials";
 import { CliError, EXIT_CONFIG, EXIT_USAGE } from "../errors";
 import {
@@ -45,6 +46,7 @@ export interface CommandContext {
   profileFlag?: string;
   hostFlag?: string;
   publicKeyFlag?: string;
+  apiVersionFlag?: string;
   /** Raw flag map for command-specific options. */
   flags: Record<string, string>;
   booleans: Set<string>;
@@ -243,7 +245,8 @@ export async function profileAdd(
     context.flags.description === undefined
       ? undefined
       : profileDescription(context.flags.description) || undefined;
-  context.config.addProfile(name, host, publicKey, description);
+  const apiVersion = await profileApiVersion(context, host);
+  context.config.addProfile(name, host, publicKey, description, apiVersion);
   await context.config.save();
   emit(
     context,
@@ -252,23 +255,41 @@ export async function profileAdd(
       profile: name,
       ...(description ? { description } : {}),
       host: normalizeHost(host),
+      ...(apiVersion ? { apiVersion } : {}),
       publicKey,
     },
     { profile: name },
     () =>
       renderKeyValues([
         ["profile", name],
-        ...describedRow(description),
+        ...optionalRow("description", description),
         ["host", normalizeHost(host)],
+        ...optionalRow("api version", apiVersion),
         ["public key", publicKey],
         ["secret key", "missing — run `langfuse-cli auth login`"],
       ]),
   );
 }
 
-/** The description row, present only for a described profile. */
-function describedRow(description?: string): Array<[string, string]> {
-  return description ? [["description", description]] : [];
+/** A row present only when the profile sets the value. */
+function optionalRow(label: string, value?: string): Array<[string, string]> {
+  return value ? [[label, value]] : [];
+}
+
+/**
+ * The --api-version to save with a profile, checked the way an API call will
+ * resolve it, so a typo fails now rather than on the next call. "auto" is
+ * detected from the server on every call, so nothing is probed here.
+ */
+async function profileApiVersion(
+  context: CommandContext,
+  host: string,
+): Promise<string | undefined> {
+  const requested = context.apiVersionFlag;
+  if (requested && requested !== "auto") {
+    await resolveContractVersion({ requested, host, timeoutMs: context.timeoutMs });
+  }
+  return requested;
 }
 
 /**
@@ -280,9 +301,9 @@ export async function profileUpdate(
   context: CommandContext,
   name: string,
 ): Promise<void> {
-  // --host and --public-key are global options, so they are consumed before
-  // subcommand parsing; here they name the new values rather than select a
-  // connection.
+  // --host, --public-key and --api-version are global options, so they are
+  // consumed before subcommand parsing; here they name the new values rather
+  // than select a connection.
   const host = context.flags.host ?? context.hostFlag;
   const publicKey = context.flags["public-key"] ?? context.publicKeyFlag;
   // An empty description clears it.
@@ -290,9 +311,14 @@ export async function profileUpdate(
     context.flags.description === undefined
       ? undefined
       : profileDescription(context.flags.description);
-  if (host === undefined && publicKey === undefined && description === undefined) {
+  if (
+    host === undefined &&
+    publicKey === undefined &&
+    description === undefined &&
+    context.apiVersionFlag === undefined
+  ) {
     throw new CliError(
-      "profile update requires --host, --public-key and/or --description",
+      "profile update requires --host, --public-key, --description and/or --api-version",
       EXIT_USAGE,
     );
   }
@@ -300,6 +326,8 @@ export async function profileUpdate(
   if (!existing) {
     throw new CliError(`Profile '${name}' does not exist`, EXIT_CONFIG);
   }
+  // An empty --api-version clears the saved one.
+  const apiVersion = await profileApiVersion(context, host ?? existing.host);
   const hostChanges =
     host !== undefined && normalizeHost(host) !== existing.host;
   if (hostChanges) {
@@ -312,7 +340,7 @@ export async function profileUpdate(
       );
     }
   }
-  context.config.updateProfile(name, { host, publicKey, description });
+  context.config.updateProfile(name, { host, publicKey, description, apiVersion });
   await context.config.save();
   const updated = context.config.profile(name);
   emit(
@@ -322,6 +350,7 @@ export async function profileUpdate(
       profile: name,
       ...(updated?.description ? { description: updated.description } : {}),
       host: updated?.host,
+      ...(updated?.apiVersion ? { apiVersion: updated.apiVersion } : {}),
       publicKey: updated?.publicKey,
       secretCleared: hostChanges,
     },
@@ -342,6 +371,7 @@ export async function profileList(context: CommandContext): Promise<void> {
         name,
         ...(profile?.description ? { description: profile.description } : {}),
         host: profile?.host ?? "",
+        ...(profile?.apiVersion ? { apiVersion: profile.apiVersion } : {}),
         publicKey: profile?.publicKey ?? "",
         hasSecret: Boolean(await context.store.get(name)),
         current: name === context.config.currentProfile,
@@ -352,8 +382,9 @@ export async function profileList(context: CommandContext): Promise<void> {
     process.stdout.write("No profiles configured. Run `langfuse-cli init`.\n");
     return;
   }
-  // The description column appears only once some profile is described.
+  // Optional columns appear only once some profile sets them.
   const described = profiles.some((profile) => profile.description);
+  const versioned = profiles.some((profile) => profile.apiVersion);
   emit(
     context,
     "profile.list",
@@ -361,12 +392,20 @@ export async function profileList(context: CommandContext): Promise<void> {
     { profile: context.config.currentProfile },
     () =>
       renderTable(
-        ["current", "name", ...(described ? ["description"] : []), "host", "key"],
+        [
+          "current",
+          "name",
+          ...(described ? ["description"] : []),
+          "host",
+          ...(versioned ? ["api version"] : []),
+          "key",
+        ],
         profiles.map((profile) => [
           profile.current ? "*" : "",
           profile.name,
           ...(described ? [profile.description ?? ""] : []),
           profile.host,
+          ...(versioned ? [profile.apiVersion ?? ""] : []),
           profile.hasSecret ? "stored" : "missing",
         ]),
       ),
@@ -391,6 +430,7 @@ export async function profileShow(
       profile: name,
       ...(profile.description ? { description: profile.description } : {}),
       host: profile.host,
+      ...(profile.apiVersion ? { apiVersion: profile.apiVersion } : {}),
       publicKey: profile.publicKey,
       hasSecret,
       store: context.store.id,
@@ -400,8 +440,9 @@ export async function profileShow(
     () =>
       renderKeyValues([
         ["name", name],
-        ...describedRow(profile.description),
+        ...optionalRow("description", profile.description),
         ["host", profile.host],
+        ...optionalRow("api version", profile.apiVersion),
         ["public key", profile.publicKey],
         ["secret key", hasSecret ? `stored (${context.store.id})` : "missing"],
         ["current", yesNo(current)],

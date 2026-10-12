@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 import {
   assertOperationCallable,
@@ -20,6 +20,7 @@ import { Config } from "./config";
 import { fileStore } from "./credentials";
 import { CliError } from "./errors";
 import { compileApiContract } from "./contracts/compiler";
+import { loadContractCatalog, setEmbeddedContracts } from "./contracts/loader";
 import type { ApiOperation } from "./contracts/types";
 
 async function captureOutput(
@@ -50,6 +51,56 @@ async function captureOutput(
     stdout: stdoutChunks.join(""),
     stderr: stderrChunks.join(""),
   };
+}
+
+/**
+ * The built contracts, injected the way completion.test.ts does: they live in
+ * dist/, so tests that need one are skipped until `bun run build` has run.
+ */
+const contractsLoaded = await (async () => {
+  const directory = resolve(import.meta.dirname, "../dist/contracts");
+  try {
+    const embedded: Record<string, string> = {};
+    for (const entry of await readdir(directory)) {
+      if (!entry.endsWith(".json")) continue;
+      embedded[basename(entry, ".json")] = await readFile(join(directory, entry), "utf8");
+    }
+    if (!embedded.catalog) return false;
+    setEmbeddedContracts(embedded);
+    return true;
+  } catch {
+    return false;
+  }
+})();
+
+/**
+ * Runs the CLI against a scratch config with the file credential store and no
+ * LANGFUSE_API_VERSION, so the developer's own profiles and keyring stay out.
+ */
+async function scratchCli(
+  fn: (cli: (...args: string[]) => Promise<{ stdout: string; stderr: string }>) => Promise<void>,
+): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "langfuse-cli-scratch-"));
+  const originalStore = process.env.LANGFUSE_CREDENTIAL_STORE;
+  const originalVersion = process.env.LANGFUSE_API_VERSION;
+  const originalExitCode = process.exitCode;
+  process.env.LANGFUSE_CREDENTIAL_STORE = "file";
+  delete process.env.LANGFUSE_API_VERSION;
+  process.exitCode = undefined;
+  try {
+    await fn((...args) =>
+      captureOutput(() =>
+        run(["node", "langfuse-cli", "--config-file", join(directory, "config.json"), ...args]),
+      ),
+    );
+  } finally {
+    if (originalStore === undefined) delete process.env.LANGFUSE_CREDENTIAL_STORE;
+    else process.env.LANGFUSE_CREDENTIAL_STORE = originalStore;
+    if (originalVersion === undefined) delete process.env.LANGFUSE_API_VERSION;
+    else process.env.LANGFUSE_API_VERSION = originalVersion;
+    process.exitCode = originalExitCode ?? 0;
+    await rm(directory, { recursive: true, force: true });
+  }
 }
 
 describe("langfuse-cli get-skill", () => {
@@ -271,6 +322,60 @@ paths:
       operations: [operation],
     });
     expect(schema.resources[0].actions[0].deprecated).toBe(true);
+  });
+
+  test("tells self-hosted v3 users how to reach a deprecated operation", () => {
+    const operation: ApiOperation = { ...promptGet, deprecated: true };
+
+    expect(() => assertOperationCallable(operation, "4.16.0", "selfhosted")).toThrow(
+      'Self-hosted v3 servers still serve this endpoint: rerun with --api-version auto, or save it with "langfuse-cli profile update selfhosted --api-version auto"',
+    );
+    expect(() => assertOperationCallable(operation, "4.16.0")).toThrow(
+      "langfuse-cli profile update <profile> --api-version auto",
+    );
+  });
+
+  test("reports a separate value after a boolean flag as flag misuse", async () => {
+    const observationsList: ApiOperation = {
+      ...promptGet,
+      operationId: "observations_getMany",
+      path: "/api/public/v2/observations",
+      command: { resource: "observations", action: "list" },
+      pathParameterOrder: [],
+      parameters: [
+        {
+          location: "query",
+          name: "isRootObservation",
+          cliName: "is-root-observation",
+          required: false,
+          style: "form",
+          explode: true,
+          kind: "boolean",
+        },
+      ],
+    };
+
+    await expect(
+      parseOperationInput(observationsList, ["--is-root-observation", "true"]),
+    ).rejects.toThrow(
+      "--is-root-observation is a boolean flag: use --is-root-observation or --is-root-observation=true",
+    );
+    await expect(
+      parseOperationInput(observationsList, ["--is-root-observation", "false"]),
+    ).rejects.toThrow(
+      "--is-root-observation is a boolean flag: use --no-is-root-observation or --is-root-observation=false",
+    );
+    // Any surplus word after the flag is its misplaced value, not a path argument.
+    await expect(
+      parseOperationInput(observationsList, ["--is-root-observation", "yes"]),
+    ).rejects.toThrow("--is-root-observation is a boolean flag");
+    await expect(
+      parseOperationInput(promptGet, ["my-prompt", "--resolve", "extra"]),
+    ).rejects.toThrow("--resolve is a boolean flag");
+    // true/false is never read as a path argument, even where one is expected.
+    await expect(parseOperationInput(promptGet, ["--resolve", "false"])).rejects.toThrow(
+      "--resolve is a boolean flag",
+    );
   });
 
   test("rejects nested body flags without consuming a positional", async () => {
@@ -1032,4 +1137,94 @@ describe("profile descriptions", () => {
     expect(output.stdout).toContain("--description");
     expect(output.stderr).toBe("");
   });
+});
+
+describe.skipIf(!contractsLoaded)("api help", () => {
+  test("--help after a resource or an action prints that help", () =>
+    scratchCli(async (cli) => {
+      const resource = await cli("api", "projects", "--help");
+      expect(resource.stderr).toBe("");
+      expect(resource.stdout).toContain("Usage: langfuse-cli api projects <action>");
+
+      const action = await cli("api", "projects", "list", "--help");
+      expect(action.stderr).toBe("");
+      expect(action.stdout).toContain("Usage: langfuse-cli api projects list");
+
+      const versions = await cli("api", "versions", "--help");
+      expect(versions.stderr).toBe("");
+      expect(versions.stdout).toContain("Usage: langfuse-cli api versions <action>");
+    }));
+});
+
+describe("profile API versions", () => {
+  test("are stored, listed, shown, updated alone and cleared", () =>
+    scratchCli(async (cli) => {
+      const json = async (...args: string[]): Promise<any> =>
+        JSON.parse((await cli("--json", ...args)).stdout);
+
+      // auto is detected on each call, so saving it needs no contract or network.
+      const added = await json(
+        "profile", "add", "selfhosted",
+        "--host", "https://langfuse.internal.example.com",
+        "--public-key", "pk-lf-self",
+        "--api-version", "auto",
+      );
+      expect(added.data.apiVersion).toBe("auto");
+      await json(
+        "profile", "add", "cloud",
+        "--host", "https://cloud.langfuse.com",
+        "--public-key", "pk-lf-cloud",
+      );
+      const listed = (await json("profile", "list")).data as Array<Record<string, unknown>>;
+      expect(listed.find((profile) => profile.name === "selfhosted")?.apiVersion).toBe("auto");
+      expect(listed.find((profile) => profile.name === "cloud")).not.toHaveProperty("apiVersion");
+
+      const updated = await json("profile", "update", "cloud", "--api-version", "auto");
+      expect(updated.data.apiVersion).toBe("auto");
+      expect(updated.data.secretCleared).toBe(false);
+      expect((await json("profile", "show", "cloud")).data.apiVersion).toBe("auto");
+      const cleared = await json("profile", "update", "cloud", "--api-version", "");
+      expect(cleared.data).not.toHaveProperty("apiVersion");
+    }));
+
+  test.skipIf(!contractsLoaded)(
+    "apply after --api-version and LANGFUSE_API_VERSION, and only to their profile",
+    () =>
+      scratchCli(async (cli) => {
+        const { latest, versions } = await loadContractCatalog();
+        const [saved, fromEnvironment, fromFlag] = versions.map((entry) => entry.version);
+        const current = async (...args: string[]) =>
+          (await cli(...args, "api", "versions", "current")).stdout.trim();
+
+        await cli(
+          "profile", "add", "selfhosted",
+          "--host", "https://langfuse.internal.example.com",
+          "--public-key", "pk-lf-self",
+          "--api-version", saved,
+        );
+        expect(await current()).toBe(saved);
+        process.env.LANGFUSE_API_VERSION = fromEnvironment;
+        expect(await current()).toBe(fromEnvironment);
+        expect(await current("--api-version", fromFlag)).toBe(fromFlag);
+        delete process.env.LANGFUSE_API_VERSION;
+        // An explicit host is not the profile's instance.
+        expect(await current("--host", "https://other.example.com")).toBe(latest);
+      }),
+  );
+
+  test.skipIf(!contractsLoaded)("must name a bundled contract unless auto", () =>
+    scratchCli(async (cli) => {
+      await cli(
+        "profile", "add", "selfhosted",
+        "--host", "https://langfuse.internal.example.com",
+        "--public-key", "pk-lf-self",
+        "--api-version", "3",
+      );
+      // A server version is not a bundled snapshot; auto or a major selects one.
+      const rejected = await cli("profile", "update", "selfhosted", "--api-version", "3.162.0");
+      expect(rejected.stderr).toContain("Unknown API version 3.162.0");
+      expect(process.exitCode).toBe(3);
+      const shown = JSON.parse((await cli("--json", "profile", "show", "selfhosted")).stdout);
+      expect(shown.data.apiVersion).toBe("3");
+    }));
 });

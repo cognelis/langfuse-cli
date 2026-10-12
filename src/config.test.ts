@@ -99,25 +99,40 @@ describe("profile storage", () => {
     expect(config.profile("prod")).not.toHaveProperty("description");
   });
 
+  test("an API version is kept by other updates and cleared by an empty one", () => {
+    const config = Config.empty("/tmp/x.json");
+    config.addProfile("selfhosted", HOST, "pk", undefined, "auto");
+    expect(config.profile("selfhosted")?.apiVersion).toBe("auto");
+    config.updateProfile("selfhosted", { host: "https://other.example.com", publicKey: "pk-2" });
+    expect(config.profile("selfhosted")?.apiVersion).toBe("auto");
+    config.updateProfile("selfhosted", { apiVersion: "3" });
+    expect(config.profile("selfhosted")?.apiVersion).toBe("3");
+    config.updateProfile("selfhosted", { apiVersion: "" });
+    expect(config.profile("selfhosted")).not.toHaveProperty("apiVersion");
+  });
+
   test("a description must be one line of at most 200 characters", () => {
     expect(profileDescription("  Production traces ")).toBe("Production traces");
     expect(() => profileDescription("two\nlines")).toThrow("one line");
     expect(() => profileDescription("x".repeat(201))).toThrow("one line");
   });
 
-  test("a stored description survives loading", async () => {
+  test("a stored description and API version survive loading", async () => {
     const directory = await mkdtemp(join(tmpdir(), "langfuse-config-"));
     try {
       const path = join(directory, "config.json");
       await writeFile(
         path,
         JSON.stringify({
-          profiles: { prod: { host: HOST, publicKey: "pk", description: "Production traces" } },
+          profiles: {
+            prod: { host: HOST, publicKey: "pk", description: "Production traces", apiVersion: "auto" },
+          },
         }),
       );
-      expect((await Config.load(path)).profile("prod")?.description).toBe(
-        "Production traces",
-      );
+      expect((await Config.load(path)).profile("prod")).toMatchObject({
+        description: "Production traces",
+        apiVersion: "auto",
+      });
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

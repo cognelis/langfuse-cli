@@ -106,7 +106,9 @@ Connections resolve in this order: `--host`, then `--profile`, then `LANGFUSE_HO
 
 Changing an instance address with `profile update <name> --host <url>` clears the saved secret key before saving the new address, and tells you to authenticate again. An equivalent normalized URL preserves the key. If the credential store cannot clear the old key, the address is left unchanged.
 
-`profile add` and `profile update` accept `--description` to record what an environment is for; `profile list` and `profile show` return it. A description is trimmed and must be one line of at most 200 characters, `--description ""` clears it, and changing only the description keeps the saved secret key. The bundled skill chooses a profile by its name and description: it uses a profile the user names, matches an environment or purpose that the request mentions against `profile list`, asks the user when several profiles or none could match, and uses the default profile only when the request names no environment.
+`profile add` and `profile update` accept `--description` to record what an environment is for; `profile list` and `profile show` return it. A description is trimmed and must be one line of at most 200 characters, `--description ""` clears it, and changing only the description keeps the saved secret key. The bundled skill chooses a profile by its name and description: it uses a profile the user names, uses a production profile only when the request names production, matches the request against `profile list`, asks the user when several profiles or none could match one project, answers a question about a whole environment from each of its profiles, and otherwise keeps the environment already in use or the default profile.
+
+`profile add` and `profile update` also accept `--api-version` to save the API contract a profile's calls use: an exact or major version, `latest`, or `auto` to detect it from the server, which suits a self-hosted v3 deployment (`profile update selfhosted --api-version auto`). The version resolves from `--api-version`, then `LANGFUSE_API_VERSION`, then the saved version of the profile the connection comes from, then the newest bundled contract. `--api-version ""` clears it, and a version that no bundled contract matches is rejected when saved.
 
 ### Where the secret actually goes
 
@@ -134,8 +136,8 @@ It checks the CLI version, connection configuration, credential availability, AP
 ```sh
 # Discover resources
 langfuse-cli api help
-langfuse-cli api prompts help
-langfuse-cli api prompts create help
+langfuse-cli api prompts help         # or: api prompts --help
+langfuse-cli api prompts create help  # or: api prompts create --help
 langfuse-cli api schema --json        # machine-readable discovery
 
 # Prompts
@@ -149,6 +151,7 @@ langfuse-cli api prompts create --type chat --name support \
 # Observations, traces, datasets, scores
 langfuse-cli api observations list --limit 10
 langfuse-cli api observations list --trace-id <trace-id>
+langfuse-cli api observations list --is-root-observation   # booleans: --flag, --flag=false or --no-flag
 langfuse-cli api datasets list
 langfuse-cli api dataset-items list --dataset-name my-dataset
 langfuse-cli api scores list --limit 20
@@ -164,6 +167,7 @@ langfuse-cli api observations list --limit 5 --curl
 langfuse-cli --api-version 3 api traces list
 langfuse-cli --api-version 3.150.0 api traces list
 langfuse-cli --api-version auto api prompts list   # detect via /api/public/health
+langfuse-cli profile update selfhosted --api-version auto   # or save it with the profile
 ```
 
 OpenAPI tags and explicit route versions remain accepted aliases, for example `scores-v3 list` for the canonical `scores list`. Verbose OpenAPI `operationId` values remain available in `api schema --json` but are never required as CLI commands.

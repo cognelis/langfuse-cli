@@ -10,6 +10,40 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+### Added
+
+- Per-profile API version: `profile add|update --api-version <version>` saves
+  the contract a profile's calls use — an exact or major version, `latest`, or
+  `auto` — so a self-hosted v3 server no longer needs the flag on every call.
+  An explicit `--api-version` or `LANGFUSE_API_VERSION` still wins.
+  `profile list` and `profile show` return it, `--api-version ""` clears it,
+  and a version that no bundled contract matches is rejected when saved.
+
+### Changed
+
+- The bundled skill uses a production profile only when the request names
+  production, answers questions about a whole environment from each of its
+  profiles, runs `doctor` once per profile in a session, and explains how to
+  work with a self-hosted v3 server through `--api-version auto` and boolean
+  options. Its CLI reference installs `@cognelis/langfuse-cli` and points to
+  profiles for credentials.
+
+### Fixed
+
+- `--help`, `--all` and bare boolean flags after an `api` command, such as
+  `langfuse-cli api projects --help` or
+  `langfuse-cli api observations list --is-root-observation`, no longer fail
+  with "requires a value".
+- A separate value after a boolean flag, as in `--is-root-observation true`,
+  now reports "--is-root-observation is a boolean flag: use
+  --is-root-observation or --is-root-observation=true" instead of a
+  path-argument count error.
+- Refusing a deprecated operation now says how to reach it on a self-hosted v3
+  server: rerun with `--api-version auto`, or save that with
+  `langfuse-cli profile update <profile> --api-version auto`.
+- `langfuse-cli api versions --help` prints its actions instead of failing with
+  "Unknown versions action".
+
 ## [2.2.0] - 2026-10-12
 
 ### Added

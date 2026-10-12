@@ -17,6 +17,8 @@ export interface ProfileConfig {
   publicKey: string;
   /** What the environment is for, so people and agents can choose the right profile. */
   description?: string;
+  /** API contract for this profile's calls; --api-version and LANGFUSE_API_VERSION override it. */
+  apiVersion?: string;
 }
 
 export interface ConfigData {
@@ -180,6 +182,7 @@ export class Config {
     host: string,
     publicKey: string,
     description?: string,
+    apiVersion?: string,
   ): void {
     assertProfileName(name);
     if (this.data.profiles[name]) {
@@ -189,6 +192,7 @@ export class Config {
       host: normalizeHost(host),
       publicKey: publicKey.trim(),
       ...(description ? { description } : {}),
+      ...(apiVersion ? { apiVersion } : {}),
     };
     this.data.currentProfile ??= name;
   }
@@ -200,7 +204,12 @@ export class Config {
    */
   updateProfile(
     name: string,
-    changes: { host?: string; publicKey?: string; description?: string },
+    changes: {
+      host?: string;
+      publicKey?: string;
+      description?: string;
+      apiVersion?: string;
+    },
   ): { hostChanged: boolean } {
     const existing = this.data.profiles[name];
     if (!existing) {
@@ -209,11 +218,16 @@ export class Config {
     const nextHost =
       changes.host === undefined ? existing.host : normalizeHost(changes.host);
     const hostChanged = nextHost !== existing.host;
-    // Omitted changes keep the current value, so re-running setup keeps the description.
+    // Omitted changes keep the current value, so re-running setup keeps the
+    // description and API version; an empty value clears either.
     const description =
       changes.description === undefined
         ? existing.description
         : changes.description || undefined;
+    const apiVersion =
+      changes.apiVersion === undefined
+        ? existing.apiVersion
+        : changes.apiVersion || undefined;
     this.data.profiles[name] = {
       host: nextHost,
       publicKey:
@@ -221,6 +235,7 @@ export class Config {
           ? existing.publicKey
           : changes.publicKey.trim(),
       ...(description ? { description } : {}),
+      ...(apiVersion ? { apiVersion } : {}),
     };
     return { hostChanged };
   }
@@ -388,6 +403,9 @@ function normalizeData(parsed: unknown): ConfigData {
       publicKey: typeof entry.publicKey === "string" ? entry.publicKey : "",
       ...(typeof entry.description === "string" && entry.description
         ? { description: entry.description }
+        : {}),
+      ...(typeof entry.apiVersion === "string" && entry.apiVersion
+        ? { apiVersion: entry.apiVersion }
         : {}),
     };
   }

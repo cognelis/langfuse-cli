@@ -95,6 +95,7 @@ interface RuntimeConfig {
   hostFlag?: string;
   publicKeyFlag?: string;
   profileFlag?: string;
+  apiVersionFlag?: string;
 }
 
 function flagKey(flag: string): string {
@@ -238,7 +239,12 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
     host,
     profile,
     publicKey: globals.values["public-key"] ?? environment.publicKey,
-    apiVersion: globals.values["api-version"] ?? env.LANGFUSE_API_VERSION,
+    // A version saved with the selected profile applies only when neither the
+    // flag nor LANGFUSE_API_VERSION chooses one.
+    apiVersion:
+      globals.values["api-version"] ??
+      env.LANGFUSE_API_VERSION ??
+      (profile ? configFile.profile(profile)?.apiVersion : undefined),
     timeoutMs,
     outputMode,
     curl: globals.booleans.has("curl"),
@@ -250,6 +256,7 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
     hostFlag: globals.values.host,
     publicKeyFlag: globals.values["public-key"],
     profileFlag: globals.values.profile,
+    apiVersionFlag: globals.values["api-version"],
   };
 }
 
@@ -425,13 +432,17 @@ function explicitDeprecationNote(operation: ApiOperation): string | undefined {
 export function assertOperationCallable(
   operation: ApiOperation,
   apiVersion: string,
+  profile = "<profile>",
 ): void {
   if (!operation.deprecated) return;
   const note = explicitDeprecationNote(operation);
   throw new CliError(
     `Cannot call deprecated API operation "${operation.command.resource} ${operation.command.action}" (${operation.method} ${operation.path}) in API ${apiVersion}.` +
       (note ? ` ${note}` : " No replacement is declared in its OpenAPI description.") +
-      ` Use "langfuse-cli api help ${operation.command.resource}" or "langfuse-cli api schema --json" to find supported operations.`,
+      ` Use "langfuse-cli api help ${operation.command.resource}" or "langfuse-cli api schema --json" to find supported operations.` +
+      // ponytail: every deprecation in the bundled snapshots retires an endpoint
+      // that recent v3 servers serve; word this per operation once one does not.
+      ` Self-hosted v3 servers still serve this endpoint: rerun with --api-version auto, or save it with "langfuse-cli profile update ${profile} --api-version auto"; the v3 contract may name the command differently (see "langfuse-cli --api-version auto api help").`,
   );
 }
 
@@ -705,6 +716,14 @@ function splitOption(token: string): { name: string; inline?: string; negated: b
   };
 }
 
+function booleanFlagError(name: string, value: string): CliError {
+  return new CliError(
+    value === "false"
+      ? `--${name} is a boolean flag: use --no-${name} or --${name}=false`
+      : `--${name} is a boolean flag: use --${name} or --${name}=true`,
+  );
+}
+
 function bodyPlaceholder(field: ApiBodyField): string {
   if (field.enum?.length) return `"${field.enum.join("|")}"`;
   if (field.kind === "number") return "0";
@@ -822,6 +841,8 @@ export async function parseOperationInput(
     }
   }
   const positionals: string[] = [];
+  // The first word left after a boolean flag; it may be a path argument.
+  let afterBoolean: { name: string; value: string } | undefined;
   let fieldBody: Record<string, JsonValue> | undefined;
   let completeBody: JsonValue | undefined;
   for (let index = 0; index < tokens.length; index++) {
@@ -845,13 +866,17 @@ export async function parseOperationInput(
     const isBoolean =
       parameter?.kind === "boolean" || bodyField?.kind === "boolean";
     let raw = option.inline;
-    if (
-      raw === undefined &&
-      !isBoolean &&
-      tokens[index + 1] !== undefined &&
-      !tokens[index + 1].startsWith("--")
-    ) {
-      raw = tokens[++index];
+    const next = tokens[index + 1];
+    if (raw === undefined && next !== undefined && !next.startsWith("--")) {
+      if (!isBoolean) {
+        raw = tokens[++index];
+      } else if (next === "true" || next === "false") {
+        // A boolean flag never takes the next word, so a separate true/false
+        // is a misplaced value rather than a path argument.
+        throw booleanFlagError(option.name, next);
+      } else {
+        afterBoolean ??= { name: option.name, value: next };
+      }
     }
     if (option.name === "body-json") {
       if (raw === undefined) throw new CliError("--body-json requires a value");
@@ -902,6 +927,10 @@ export async function parseOperationInput(
     throw new CliError("Do not mix --body-json/--body-file with body field flags");
   }
   if (positionals.length !== operation.pathParameterOrder.length) {
+    // A surplus word after a boolean flag was meant as its value.
+    if (afterBoolean && positionals.length > operation.pathParameterOrder.length) {
+      throw booleanFlagError(afterBoolean.name, afterBoolean.value);
+    }
     throw new CliError(
       `${operation.operationId} expects ${operation.pathParameterOrder.length} path argument(s), got ${positionals.length}`,
     );
@@ -1169,6 +1198,14 @@ export async function writeResult(
   if (!result.ok) process.exitCode = EXIT_HTTP;
 }
 
+const VERSIONS_USAGE = `Usage: langfuse-cli api versions <action>
+
+Actions:
+  list      Bundled API snapshots (default)
+  current   The snapshot this command line resolves to
+  detect    The server's version and the snapshot --api-version auto picks
+`;
+
 export async function runApi(
   config: RuntimeConfig,
   args: string[],
@@ -1177,6 +1214,10 @@ export async function runApi(
   const catalog = providedCatalog ?? (await loadContractCatalog());
   if (args[0] === "versions") {
     const action = args[1] ?? "list";
+    if (action === "help" || action === "--help" || action === "-h") {
+      process.stdout.write(VERSIONS_USAGE);
+      return;
+    }
     if (action === "list") {
       process.stdout.write(
         `${catalog.versions.map((entry) => entry.version).join("\n")}\n`,
@@ -1252,7 +1293,7 @@ export async function runApi(
     printOperationHelp(operation);
     return;
   }
-  assertOperationCallable(operation, contract.apiVersion);
+  assertOperationCallable(operation, contract.apiVersion, config.profile);
   const pagination = extractPaginationFlags(args.slice(2));
   assertPaginationUsage(operation, pagination, config.curl);
   const input = await parseOperationInput(operation, pagination.tokens);
@@ -1287,8 +1328,8 @@ export async function runApi(
 const SUBCOMMAND_BOOLEANS = new Set(["secret-key-stdin", "no-verify"]);
 
 const PROFILE_USAGE = `Usage:
-  langfuse-cli profile add <name> --host <url> --public-key <pk> [--description <text>]
-  langfuse-cli profile update <name> [--host <url>] [--public-key <pk>] [--description <text>]
+  langfuse-cli profile add <name> --host <url> --public-key <pk> [--description <text>] [--api-version <version>]
+  langfuse-cli profile update <name> [--host <url>] [--public-key <pk>] [--description <text>] [--api-version <version>]
   langfuse-cli profile list
   langfuse-cli profile show [<name>]
   langfuse-cli profile use <name>
@@ -1296,6 +1337,11 @@ const PROFILE_USAGE = `Usage:
 
 --description records what the environment is for, in one line of at most 200
 characters; profile list and profile show return it, and an empty value clears it.
+
+--api-version saves the API contract for the profile's calls: an exact or major
+version, latest, or auto to detect it from the server. An --api-version flag on
+an api command, or LANGFUSE_API_VERSION, still overrides it; an empty value
+clears it.
 `;
 
 interface SubcommandArgs {
@@ -1343,6 +1389,7 @@ function commandContext(
     profileFlag: config.profileFlag,
     hostFlag: config.hostFlag,
     publicKeyFlag: config.publicKeyFlag,
+    apiVersionFlag: config.apiVersionFlag,
     flags: sub.values,
     booleans: sub.booleans,
   };
@@ -1385,7 +1432,7 @@ async function runProfile(
         context,
         requirePositional(
           sub,
-          "langfuse-cli profile add <name> --host <url> --public-key <pk> [--description <text>]",
+          "langfuse-cli profile add <name> --host <url> --public-key <pk> [--description <text>] [--api-version <version>]",
         ),
       );
     case "update":
@@ -1393,7 +1440,7 @@ async function runProfile(
         context,
         requirePositional(
           sub,
-          "langfuse-cli profile update <name> [--host <url>] [--public-key <pk>] [--description <text>]",
+          "langfuse-cli profile update <name> [--host <url>] [--public-key <pk>] [--description <text>] [--api-version <version>]",
         ),
       );
     case "list":
@@ -1513,10 +1560,11 @@ export async function run(argv: string[]): Promise<void> {
       return;
     }
     const config = await runtimeConfig(globals);
+    // `api` parses its options against the operation's contract; the
+    // connection-command parser would demand a value after --help or a boolean flag.
+    if (command === "api") return await runApi(config, args);
     const sub = parseSubcommandArgs(args);
     switch (command) {
-      case "api":
-        return await runApi(config, args);
       case "init":
         return await init(commandContext(config, sub));
       case "doctor":
