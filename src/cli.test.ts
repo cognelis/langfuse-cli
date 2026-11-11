@@ -1396,6 +1396,41 @@ describe("profile API versions", () => {
 });
 
 describe("configuration recovery", () => {
+  test("skills status inspects a missing installation without reading configuration or connecting", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "langfuse-status-cli-"));
+    const originalClaude = process.env.CLAUDE_CONFIG_DIR;
+    const originalFetch = globalThis.fetch;
+    const originalExit = process.exitCode;
+    process.env.CLAUDE_CONFIG_DIR = join(directory, "claude");
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; throw new Error("unexpected network"); }) as typeof fetch;
+    try {
+      const path = join(directory, "broken.json");
+      await writeFile(path, "TOP_SECRET invalid JSON");
+      process.exitCode = 0;
+      const output = await captureOutput(() => run(["node", "langfuse-cli", "--config-file", path, "--json", "skills", "status", "--target", "claude"]));
+      expect(process.exitCode).toBe(0);
+      expect(output.stderr).toBe("");
+      const envelope = JSON.parse(output.stdout);
+      expect(envelope.command).toBe("skills.status");
+      expect(envelope.data[0].status).toBe("missing");
+      expect(envelope.data[0].missingFiles).toContain("SKILL.md");
+      expect(await Bun.file(join(directory, "claude/skills/langfuse/SKILL.md")).exists()).toBe(false);
+      const installed = await captureOutput(() => run(["node", "langfuse-cli", "--config-file", path, "--json", "skills", "install", "--target", "claude"]));
+      expect(process.exitCode).toBe(0);
+      expect(JSON.parse(installed.stdout).command).toBe("skills.install");
+      const checked = await captureOutput(() => run(["node", "langfuse-cli", "--config-file", path, "--json", "skills", "status", "--target", "claude"]));
+      expect(JSON.parse(checked.stdout).data[0].status).toBe("current");
+      expect(await readFile(path, "utf8")).toBe("TOP_SECRET invalid JSON");
+      expect(calls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      process.exitCode = originalExit;
+      if (originalClaude === undefined) delete process.env.CLAUDE_CONFIG_DIR;
+      else process.env.CLAUDE_CONFIG_DIR = originalClaude;
+      await rm(directory, {recursive: true, force: true});
+    }
+  });
   for (const contents of ["TOP_SECRET invalid JSON", JSON.stringify({ profiles: { broken: { host: "https://u:TOP_SECRET@host.example", publicKey: "pk" } } })]) {
     test(`doctor and config path remain usable for ${contents.startsWith("{") ? "invalid host" : "invalid JSON"}`, async () => {
       const directory = await mkdtemp(join(tmpdir(), "langfuse-recovery-"));

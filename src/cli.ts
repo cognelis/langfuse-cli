@@ -59,7 +59,7 @@ import {
   profileUse,
 } from "./commands/connection";
 import { init } from "./commands/init";
-import { installSkills, parseSkillTarget } from "./commands/skills";
+import { inspectSkills, installSkills, parseSkillTarget } from "./commands/skills";
 import {
   complete,
   parseCompletionShell,
@@ -207,9 +207,10 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   const configFilePath = globals.values["config-file"] ?? defaultConfigPath();
   const isDoctor = globals.args[0] === "doctor";
   const isConfigPath = globals.args[0] === "config" && globals.args[1] === "path";
+  const isLocalMaintenance = isConfigPath || globals.args[0] === "skills";
   let configFile = Config.empty(configFilePath);
   let configurationError: string | undefined;
-  if (!isConfigPath) {
+  if (!isLocalMaintenance) {
     try {
       configFile = await Config.load(configFilePath);
     } catch (error) {
@@ -223,8 +224,8 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   // with no reachable keyring.
   const store = await resolveCredentialStore({
     fallbackPath: fallbackCredentialPath(configFilePath),
-    // Recovery paths never read this store, so they must not probe the system keyring.
-    forceFile: isConfigPath || configurationError !== undefined || env.LANGFUSE_CREDENTIAL_STORE === "file",
+    // Local maintenance and failed diagnostics never read this store or probe the system keyring.
+    forceFile: isLocalMaintenance || configurationError !== undefined || env.LANGFUSE_CREDENTIAL_STORE === "file",
   });
   const environment = {
     host: env.LANGFUSE_BASE_URL ?? env.LANGFUSE_HOST,
@@ -249,7 +250,7 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   } catch (error) {
     // An explicitly named profile that does not exist is a real error; an
     // absent configuration simply falls back to the public cloud host.
-    if (!isDoctor && !isConfigPath &&
+    if (!isDoctor && !isLocalMaintenance &&
         (globals.values.profile || globals.values.host || (globals.args[0] === "api" && environment.host))) throw error;
   }
 
@@ -306,7 +307,7 @@ Commands:
   auth                    login | check | logout
   profile                 add | update | list | show | use | remove
   config                  path | show
-  skills                  install [--target all|codex|claude]
+  skills                  status|install [--target all|codex|claude]
   completion              Emit a zsh, bash or fish completion script
 
 Options:
@@ -1556,9 +1557,16 @@ async function runSkills(
   config: RuntimeConfig,
   sub: SubcommandArgs,
 ): Promise<void> {
+  if (sub.positional[0] === "status") {
+    const results = await inspectSkills(parseSkillTarget(sub.values.target));
+    if (config.outputMode === "table") {
+      process.stdout.write(`${renderTable(["target", "status", "installed", "bundled", "directory"], results.map((result) => [result.target, result.status, result.installedVersion ?? "unknown", result.bundledVersion, result.directory]))}\n`);
+    } else process.stdout.write(renderSuccess(config.outputMode, "skills.status", results));
+    return;
+  }
   if (sub.positional[0] !== "install") {
     throw new CliError(
-      "Usage: langfuse-cli skills install [--target all|codex|claude]",
+      "Usage: langfuse-cli skills <status|install> [--target all|codex|claude]",
       EXIT_USAGE,
     );
   }

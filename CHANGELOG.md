@@ -10,6 +10,25 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-11-11
+
+### Added
+
+- `skills status [--target all|codex|claude]` performs an offline, read-only
+  inspection of managed Skill installations. It reports installed/bundled
+  versions and changed, missing, or unreadable files, including same-version
+  edits and missing references, without modifying user files.
+- The core Skill routes local maintenance directly to offline commands and
+  reserves profile/doctor preflight for data workflows. It describes the
+  inspect, review, refresh, verify, and context-reload sequence.
+
+### Fixed
+
+- Standalone executables embed the complete Skill tree for both installation and
+  status checks. Release smoke tests exercise the embedded files from an isolated
+  environment. Local Skill commands no longer depend on connection configuration.
+
+
 ## [2.5.2] - 2026-11-11
 
 ### Fixed

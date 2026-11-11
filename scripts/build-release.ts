@@ -133,9 +133,10 @@ function smokeRunner(binary: string, sandbox: string) {
   env.USERPROFILE = sandbox;
   env.APPDATA = sandbox;
   env.XDG_CONFIG_HOME = sandbox;
+  env.CLAUDE_CONFIG_DIR = join(sandbox, ".claude");
 
   return (args: string[]): SmokeResult => {
-    const result = Bun.spawnSync([binary, ...args], { env, stdout: "pipe", stderr: "pipe" });
+    const result = Bun.spawnSync([binary, ...args], { cwd: sandbox, env, stdout: "pipe", stderr: "pipe" });
     const decoder = new TextDecoder();
     return {
       status: result.exitCode ?? -1,
@@ -146,8 +147,9 @@ function smokeRunner(binary: string, sandbox: string) {
 }
 
 /**
- * Five offline checks, each covering a documented contract: the reported
- * version, the API command surface, the completion function name zsh resolves
+ * Offline checks covering the reported version, bundled Skill install/status,
+ * and the documented contracts below:
+ * the API command surface, the completion function name zsh resolves
  * the file by, the completion callback that replaces a baked-in command table,
  * and the usage exit code with a clean stdout.
  */
@@ -172,6 +174,17 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
   const callback = run(["__complete", "api", "prompts"]);
   if (callback.status !== 0 || !/^list\b/m.test(callback.stdout)) {
     fail("`__complete api prompts` did not offer the list action");
+  }
+
+  const skillStatus = run(["skills", "status", "--target", "claude", "--json"]);
+  if (skillStatus.status !== 0 || JSON.parse(skillStatus.stdout).data[0]?.bundledVersion !== version) {
+    fail("`skills status` could not inspect the embedded Skill");
+  }
+  const installed = run(["skills", "install", "--target", "claude", "--json"]);
+  if (installed.status !== 0) fail("`skills install` could not deploy the embedded Skill");
+  const checked = run(["skills", "status", "--target", "claude", "--json"]);
+  if (checked.status !== 0 || JSON.parse(checked.stdout).data[0]?.status !== "current") {
+    fail("the installed standalone Skill does not match the embedded files");
   }
 
   const usage = run(["api", "nosuchresource"]);

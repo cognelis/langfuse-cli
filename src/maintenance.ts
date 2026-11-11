@@ -25,7 +25,7 @@ export function releaseCheck(current: string, body: unknown): DoctorCheck {
   const difference = a.map((part, index) => part - b[index]).find((part) => part !== 0) ?? 0;
   const state = difference < 0 ? "update_available" : difference > 0 ? "ahead" : "current";
   let message = `${state}: installed ${current}; latest ${latest.replace(/^v/, "")}`;
-  if (difference < 0) message += `; upgrade langfuse-cli (npm: npm install -g @cognelis/langfuse-cli@latest), run \`${INSTALL}\`, then reload the agent context`;
+  if (difference < 0) message += `; upgrade langfuse-cli (npm: npm install -g @cognelis/langfuse-cli@latest), inspect \`langfuse-cli skills status\`, review changes, run \`${INSTALL}\`, then reload the agent context`;
   return { name: "package", status: "pass", message };
 }
 
@@ -99,7 +99,7 @@ export async function skillCheck(roots: string[], loaded: string): Promise<Docto
     : current > 0 ? "installed_not_loaded" : installed > 0 ? "outdated" : issues.length ? "invalid" : "not_installed";
   let message = `${state}: bundled ${VERSION}; loaded ${loadedVersion}; installed ${installed}, current ${current}`;
   if (issues.length) message += `; ${issues.join("; ")}`;
-  if (!current || issues.length) message += `; run \`${INSTALL}\``;
+  if (!current || issues.length) message += `; inspect \`langfuse-cli skills status\`, then run \`${INSTALL}\` for an intended refresh`;
   if (loadedVersion !== VERSION) message += "; reload the agent context (or load the Skill if not yet loaded)";
   return { name: "skill", status: "pass", message };
 }

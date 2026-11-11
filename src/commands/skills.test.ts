@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { CliError } from "../errors";
-import { installSkills, parseSkillTarget } from "./skills";
+import { inspectSkills, installSkills, parseSkillTarget, setEmbeddedSkills } from "./skills";
+import packageJson from "../../package.json";
 
 async function scratch(): Promise<string> {
   return mkdtemp(join(tmpdir(), "langfuse-skills-"));
@@ -26,6 +27,50 @@ describe("skill target parsing", () => {
 });
 
 describe("skill installation", () => {
+  test("status detects same-version edits and missing references without rewriting files", async () => {
+    const directory = await scratch();
+    const options = { claudeDirectory: join(directory, "skill") };
+    try {
+      const missing = (await inspectSkills("claude", options))[0];
+      expect(missing.status).toBe("missing");
+      expect(await Bun.file(join(options.claudeDirectory, "SKILL.md")).exists()).toBe(false);
+      await installSkills("claude", options);
+      expect((await inspectSkills("claude", options))[0].status).toBe("current");
+      const path = join(options.claudeDirectory, "SKILL.md");
+      const edited = await readFile(path, "utf8") + "\nCustom notes.\n";
+      await writeFile(path, edited);
+      await rm(join(options.claudeDirectory, "references/cli.md"));
+      await writeFile(join(options.claudeDirectory, "unmanaged.txt"), "keep me");
+      const changed = (await inspectSkills("claude", options))[0];
+      expect(changed.status).toBe("different");
+      expect(changed.installedVersion).toBe(packageJson.version);
+      expect(changed.changedFiles).toEqual(["SKILL.md"]);
+      expect(changed.missingFiles).toEqual(["references/cli.md"]);
+      expect(await readFile(path, "utf8")).toBe(edited);
+      expect(await readFile(join(options.claudeDirectory, "unmanaged.txt"), "utf8")).toBe("keep me");
+      await rm(path);
+      await mkdir(path);
+      const unreadable = (await inspectSkills("claude", options))[0];
+      expect(unreadable.status).toBe("unreadable");
+      expect(unreadable.unreadableFiles).toEqual(["SKILL.md"]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("embedded files support installation and inspection without a source directory", async () => {
+    const directory = await scratch();
+    setEmbeddedSkills({ "SKILL.md": `---\nversion: ${packageJson.version}\n---\nEmbedded test skill\n`, "references/example.md": "Embedded reference" });
+    try {
+      const options = { claudeDirectory: directory };
+      await installSkills("claude", options);
+      expect(await readFile(join(directory, "references/example.md"), "utf8")).toBe("Embedded reference");
+      const status = (await inspectSkills("claude", options))[0];
+      expect(status.status).toBe("current");
+      expect(status.installedVersion).toBe(packageJson.version);
+    } finally {
+      setEmbeddedSkills(undefined);
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
   test("installs the SKILL.md together with every reference it links to", async () => {
     const directory = await scratch();
     try {

@@ -64,7 +64,7 @@ const TOP_LEVEL: CompletionItem[] = [
   command("auth", "login | check | logout"),
   command("profile", "Manage named connection profiles"),
   command("config", "Show the config path or its contents"),
-  command("skills", "Install the bundled agent skill"),
+  command("skills", "Inspect or install the bundled agent skill"),
   command("completion", "Generate a shell completion script"),
 ];
 
@@ -86,7 +86,7 @@ const SUBCOMMANDS: Record<string, CompletionItem[]> = {
     command("path", "Print the config file path"),
     command("show", "Print the config without credentials"),
   ],
-  skills: [command("install", "Install the bundled skill")],
+  skills: [command("install", "Install the bundled skill"), command("status", "Inspect installed Skill files")],
   completion: COMPLETION_SHELLS.map((shell) =>
     literal(shell, `Generate a ${shell} completion script`),
   ),
@@ -303,7 +303,7 @@ export async function complete(
         .names()
         .map((name) => literal(name, deps.config.profile(name)?.host ?? ""));
     }
-    if (head === "skills" && second === "install") {
+    if (head === "skills" && (second === "install" || second === "status")) {
       return [option("--target", "all | codex | claude")];
     }
     if (head === "auth" && second === "login") {

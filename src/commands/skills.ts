@@ -7,16 +7,38 @@
 //
 // Installation is idempotent and additive: managed files are overwritten,
 // anything else already in the target directory is left alone.
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { CliError, EXIT_LOCAL } from "../errors";
+import { skillVersion } from "../maintenance";
+import packageJson from "../../package.json";
 
 export type SkillTarget = "all" | "codex" | "claude";
 
 export const SKILL_NAME = "langfuse";
+
+let embeddedSkills: Readonly<Record<string, string>> | undefined;
+
+/** Injected into standalone executables, like the bundled API contracts. */
+export function setEmbeddedSkills(files: Readonly<Record<string, string>> | undefined): void {
+  embeddedSkills = files;
+}
+
+export interface StatusResult {
+  target: Exclude<SkillTarget, "all">;
+  skill: string;
+  directory: string;
+  status: "current" | "different" | "missing" | "unreadable";
+  bundledVersion: string;
+  installedVersion: string | null;
+  changedFiles: string[];
+  missingFiles: string[];
+  unreadableFiles: string[];
+}
+
 
 export interface InstallResult {
   target: Exclude<SkillTarget, "all">;
@@ -116,12 +138,7 @@ export async function installSkills(
   target: SkillTarget,
   options: InstallOptions = {},
 ): Promise<InstallResult[]> {
-  const source = await skillSourceDirectory();
-  const files = await bundledFiles(source);
-  const contents = new Map<string, string>();
-  for (const file of files) {
-    contents.set(file, await readFile(join(source, file), "utf8"));
-  }
+  const contents = await skillContents();
 
   const results: InstallResult[] = [];
   for (const { target: name, directory } of targetDirectories(target, options)) {
@@ -149,6 +166,59 @@ export async function installSkills(
       if (previous === undefined) result.installed.push(file);
       else result.updated.push(file);
     }
+    results.push(result);
+  }
+  return results;
+}
+
+async function skillContents(): Promise<Map<string, string>> {
+  if (embeddedSkills) {
+    if (!embeddedSkills["SKILL.md"]) throw new CliError("The bundled skill is missing from this installation", EXIT_LOCAL);
+    return new Map(Object.keys(embeddedSkills).sort().map((path) => [path, embeddedSkills![path]]));
+  }
+  const source = await skillSourceDirectory();
+  const contents = new Map<string, string>();
+  for (const path of await bundledFiles(source)) contents.set(path, await readFile(join(source, path), "utf8"));
+  return contents;
+}
+
+async function readForComparison(path: string, maximum: number): Promise<Buffer> {
+  if (!(await stat(path)).isFile()) throw new Error("not a regular file");
+  const file = await open(path, "r");
+  try {
+    const bytes = Buffer.alloc(maximum);
+    let length = 0;
+    while (length < maximum) {
+      const { bytesRead } = await file.read(bytes, length, maximum - length, null);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    return bytes.subarray(0, length);
+  } finally { await file.close(); }
+}
+
+export async function inspectSkills(target: SkillTarget, options: InstallOptions = {}): Promise<StatusResult[]> {
+  const contents = await skillContents();
+  const results: StatusResult[] = [];
+  for (const {target: agent, directory} of targetDirectories(target, options)) {
+    const result: StatusResult = {
+      target: agent, skill: SKILL_NAME, directory, status: "current", bundledVersion: packageJson.version,
+      installedVersion: null, changedFiles: [], missingFiles: [], unreadableFiles: [],
+    };
+    for (const [relative, text] of contents) {
+      const expected = Buffer.from(text);
+      try {
+        const actual = await readForComparison(join(directory, ...relative.split("/")), expected.length + 1);
+        if (relative === "SKILL.md") result.installedVersion = skillVersion(actual.toString("utf8")) ?? null;
+        if (!actual.equals(expected)) result.changedFiles.push(relative);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") result.missingFiles.push(relative);
+        else result.unreadableFiles.push(relative);
+      }
+    }
+    result.status = result.unreadableFiles.length ? "unreadable"
+      : result.missingFiles.includes("SKILL.md") ? "missing"
+      : result.changedFiles.length || result.missingFiles.length ? "different" : "current";
     results.push(result);
   }
   return results;

@@ -192,7 +192,8 @@ describe("candidates", () => {
   test("subcommand groups complete their actions", async () => {
     expect((await values(["auth"])).sort()).toEqual(["check", "login", "logout"]);
     expect((await values(["config"])).sort()).toEqual(["path", "show"]);
-    expect(await values(["skills"])).toEqual(["install"]);
+    expect(await values(["skills"])).toEqual(["install", "status"]);
+    expect(await values(["skills", "status"])).toContain("--target");
     expect((await values(["completion"])).sort()).toEqual(["bash", "fish", "zsh"]);
   });
 
