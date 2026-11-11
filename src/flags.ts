@@ -22,6 +22,7 @@ export const GLOBAL_BOOLEAN_FLAG_NAMES = [
   "json",
   "raw",
   "curl",
+  "dry-run",
   "show-secrets",
 ] as const;
 

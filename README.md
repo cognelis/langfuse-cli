@@ -427,3 +427,24 @@ Review local customizations before an intended `skills install`, verify status
 again afterward, then reload the agent context. File alignment does not prove
 that the running agent loaded the new Skill. Doctor remains the connection and
 version overview; this command provides per-file installation detail.
+
+## Unreleased: offline API request plans
+
+```sh
+langfuse-cli --api-version 4.16.0 --dry-run --output json api prompts create --type text --name draft --prompt 'Hello {{name}}'
+```
+
+`--dry-run` validates the same operation inputs and serializes the same URL,
+query, and body as execution, but does not fetch, resolve authentication, or
+probe the system credential store. The result is `api.plan`, with `executed:
+false`, the selected API version, request details, and whether authentication
+will be needed. It uses the normal host/profile selection; a missing setup can
+use the default cloud host. Supplied request values are included, so plans can
+contain sensitive data even though stored/environment authentication is omitted.
+
+Choose an explicit bundled version or `latest`; `auto` would need a server
+probe and is refused. Preview covers one request: `--all`, `--max-items`,
+`--curl`, and `--out-file` are refused. Redirect JSON stdout to save a plan.
+Local contract validation does not replace server validation or authorization.
+For execution, keep the reviewed input and version, perform the usual profile
+and doctor preflight, and remove `--dry-run` only for an authorized operation.

@@ -65,6 +65,7 @@ export function prepareRequest(
   config: ApiClientConfig,
   operation: ApiOperation,
   input: ApiCallInput,
+  authenticate = true,
 ): PreparedRequest {
   let pathname = operation.path;
   const headers = new Headers();
@@ -102,7 +103,7 @@ export function prepareRequest(
     }
   }
   if (cookies.length > 0) headers.set("cookie", cookies.join("; "));
-  if (operation.auth.required && operation.auth.schemes.includes("BasicAuth")) {
+  if (authenticate && operation.auth.required && operation.auth.schemes.includes("BasicAuth")) {
     if (!config.publicKey || !config.secretKey) {
       throw new CliError(
         "This operation requires LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY",

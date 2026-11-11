@@ -25,11 +25,15 @@ allowed-tools:
 ## Choose the next step
 
 - **Local installation or Skill maintenance:** run `langfuse-cli skills status --target codex --output json` (or `--target claude` / `all`). This is offline and read-only; it needs no profile selection, credentials, or doctor preflight.
-- **Data investigation or changes:** follow the environment-selection and doctor rules below before the first data operation. Production and write permissions still require the user's stated intent.
+- **Data execution:** follow the environment-selection and doctor rules below before the first data operation. Production and write permissions still require the user's stated intent.
 - **After a CLI upgrade:** inspect `changedFiles`, `missingFiles`, and `unreadableFiles` before refreshing Skills. If managed files contain intentional local edits, review them before running `skills install`; do not silently overwrite customizations. Unmanaged files are ignored and preserved.
 - **After an intended refresh:** run `skills status` again, then reload the agent context. `current` proves managed file contents match this CLI's bundle; it does not prove the agent has loaded them.
 
 `skills status` reports `current`, `different`, `missing` (no SKILL.md), or `unreadable`. It returns installed and bundled versions, paths, and relative file lists without printing file contents. Exit 0 means inspection completed, even if files differ; inspect `data[].status` for alignment.
+
+## Review one API request locally
+
+For input composition, add `--dry-run` to an API operation and choose a bundled `--api-version` (never `auto`). It validates the local contract and returns `api.plan` with `executed: false`, URL, headers, body, and authentication requirements. It never fetches or reads stored credentials; supplied request values are still printed. Do not combine it with `--all`, `--max-items`, `--curl`, or `--out-file`. Select the intended profile and complete doctor before real execution; remove only `--dry-run` from the reviewed operation when that operation is authorized. A valid local plan is not server validation or permission to mutate data.
 
 ## Doctor version checks
 

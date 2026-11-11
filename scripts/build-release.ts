@@ -188,6 +188,12 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
   }
 
   const usage = run(["api", "nosuchresource"]);
+  const planned = run(["--dry-run", "--api-version", "4.16.0", "--json", "api", "prompts", "create", "--type", "text", "--name", "release-smoke", "--prompt", "hello"]);
+  if (planned.status !== 0) fail("offline API request planning failed in the standalone binary");
+  const plan = JSON.parse(planned.stdout);
+  if (plan.command !== "api.plan" || plan.data.executed !== false || plan.data.headers.authorization !== undefined) {
+    fail("offline API request plan must be unexecuted and omit authentication");
+  }
   if (usage.status !== 2 || usage.stdout.length !== 0 || usage.stderr.trim().length === 0) {
     fail(
       `an unknown resource exited ${usage.status} with ${usage.stdout.length} bytes on stdout; ` +

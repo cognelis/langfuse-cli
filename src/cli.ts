@@ -3,7 +3,7 @@ import { text as streamText } from "node:stream/consumers";
 
 import packageJson from "../package.json";
 
-import { createApiClient, renderCurl } from "./client";
+import { createApiClient, prepareRequest, renderCurl } from "./client";
 import {
   Config,
   DEFAULT_HOST,
@@ -89,6 +89,7 @@ interface RuntimeConfig {
   /** The format a flag asked for; undefined when `auto` chose `outputMode`. */
   outputFlag?: OutputMode;
   curl: boolean;
+  dryRun?: boolean;
   showSecrets: boolean;
   outFile?: string;
   configFile: Config;
@@ -129,6 +130,7 @@ function extractGlobals(args: string[]): ParsedGlobals {
       continue;
     }
     if (BOOLEAN_FLAGS.has(name)) {
+      if (name === "--dry-run" && equals !== -1) throw new CliError("--dry-run takes no value");
       booleans.add(flagKey(name));
       continue;
     }
@@ -225,7 +227,7 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   const store = await resolveCredentialStore({
     fallbackPath: fallbackCredentialPath(configFilePath),
     // Local maintenance and failed diagnostics never read this store or probe the system keyring.
-    forceFile: isLocalMaintenance || configurationError !== undefined || env.LANGFUSE_CREDENTIAL_STORE === "file",
+    forceFile: globals.booleans.has("dry-run") || isLocalMaintenance || configurationError !== undefined || env.LANGFUSE_CREDENTIAL_STORE === "file",
   });
   const environment = {
     host: env.LANGFUSE_BASE_URL ?? env.LANGFUSE_HOST,
@@ -268,6 +270,7 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
     outputMode,
     outputFlag,
     curl: globals.booleans.has("curl"),
+    dryRun: globals.booleans.has("dry-run"),
     showSecrets: globals.booleans.has("show-secrets"),
     outFile: globals.values["out-file"],
     configFile,
@@ -417,6 +420,7 @@ Action options:
   --all                      Fetch every page of a paginated list (--max-items caps it)
   --json                     Stable JSON response envelope
   --curl                     Print curl without executing
+  --dry-run                  Validate and print one API request without sending it
 `);
 }
 
@@ -1267,6 +1271,11 @@ export async function runApi(
   args: string[],
   providedCatalog?: ApiContractCatalog,
 ): Promise<void> {
+  if (config.dryRun) {
+    if (config.curl || config.outFile) throw new CliError("--dry-run cannot be combined with --curl or --out-file; redirect stdout to save a plan");
+    if (config.apiVersion === "auto") throw new CliError("--dry-run is offline; choose a bundled --api-version instead of auto");
+    if (!args[1] || ["versions", "schema", "__schema", "__spec", "help"].includes(args[0])) throw new CliError("--dry-run requires an API resource and action");
+  }
   const catalog = providedCatalog ?? (await loadContractCatalog());
   if (args[0] === "versions") {
     const action = args[1] ?? "list";
@@ -1367,7 +1376,18 @@ export async function runApi(
   assertOperationCallable(operation, contract.apiVersion, config.profile);
   const pagination = extractPaginationFlags(args.slice(2));
   assertPaginationUsage(operation, pagination, config.curl);
+  if (config.dryRun && (pagination.all || pagination.maxItems !== undefined)) throw new CliError("--dry-run previews one request; omit --all and --max-items");
   const input = await parseOperationInput(operation, pagination.tokens);
+  if (config.dryRun) {
+    const request = prepareRequest({ host: config.host, timeoutMs: config.timeoutMs }, operation, input, false);
+    process.stdout.write(renderSuccess(config.outputMode, "api.plan", {
+      executed: false, apiVersion: contract.apiVersion, operationId: operation.operationId,
+      method: request.method, url: request.url.href, headers: Object.fromEntries(request.headers),
+      ...(request.body === undefined ? {} : {body: JSON.parse(request.body)}),
+      authenticationRequired: operation.auth.required, validation: "local_contract_only",
+    }));
+    return;
+  }
   // Credentials are resolved here, at the last possible moment, so every
   // discovery path above stays usable without a configured connection.
   const connection = await connect(config);
@@ -1639,6 +1659,7 @@ export async function run(argv: string[]): Promise<void> {
       else printHelp();
       return;
     }
+    if (globals.booleans.has("dry-run") && command !== "api") throw new CliError("--dry-run is only supported for API operations");
     const config = await runtimeConfig(globals);
     // `api` parses its options against the operation's contract; the
     // connection-command parser would demand a value after --help or a boolean flag.

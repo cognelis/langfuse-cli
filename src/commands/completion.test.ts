@@ -174,6 +174,7 @@ describe("candidates", () => {
     expect(result).toContain("api");
     expect(result).toContain("completion");
     expect(result).toContain("--profile");
+    expect(result).toContain("--dry-run");
   });
 
   test("--profile completes to configured profile names", async () => {

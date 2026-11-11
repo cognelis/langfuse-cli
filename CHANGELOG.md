@@ -10,6 +10,16 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+### Added
+
+- API operations accept `--dry-run` to validate inputs against the selected
+  bundled contract and emit a structured, unexecuted request plan. Profile and
+  environment authentication is not resolved or included. The plan uses the
+  same path, query, and body serializer as execution.
+- Offline preview requires a bundled API version (not `auto`) and one request;
+  it rejects `--curl`, `--all`, `--max-items`, and `--out-file` combinations.
+
+
 ## [2.6.0] - 2026-11-11
 
 ### Added

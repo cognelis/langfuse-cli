@@ -1043,6 +1043,58 @@ describe("pagination with --all", () => {
 });
 
 describe("exit code taxonomy", () => {
+  test("dry-run validates one request without fetching or exposing environment credentials", () => scratchCli(async (cli) => {
+    const originalFetch = globalThis.fetch;
+    const originalSecret = process.env.LANGFUSE_SECRET_KEY;
+    process.env.LANGFUSE_SECRET_KEY = "NEVER_PRINT_ENV_SECRET";
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; throw new Error("unexpected request"); }) as typeof fetch;
+    try {
+      process.exitCode = 0;
+      const output = await cli("--json", "--dry-run", "--host", "https://host.example/proxy", "api", "prompts", "create", "--type", "text", "--name", "draft", "--prompt", "hello");
+      expect(process.exitCode).toBe(0);
+      const plan = JSON.parse(output.stdout);
+      expect(plan.command).toBe("api.plan");
+      expect(plan.data.executed).toBe(false);
+      expect(plan.data.method).toBe("POST");
+      expect(plan.data.url).toBe("https://host.example/proxy/api/public/v2/prompts");
+      expect(plan.data.body).toMatchObject({ name: "draft", prompt: "hello", type: "text" });
+      expect(plan.data.headers.authorization).toBeUndefined();
+      expect(plan.data.authenticationRequired).toBe(true);
+      expect(output.stdout).not.toContain("NEVER_PRINT_ENV_SECRET");
+      const get = JSON.parse((await cli("--json", "--dry-run", "--host", "https://host.example/proxy", "api", "prompts", "list", "--limit", "1")).stdout);
+      expect(get.data.method).toBe("GET");
+      expect(get.data).not.toHaveProperty("body");
+      expect(get.data.url).toContain("limit=1");
+      for (const args of [
+        ["--api-version", "auto", "api", "prompts", "list"],
+        ["--curl", "api", "prompts", "list"],
+        ["api", "prompts", "list", "--all"],
+        ["api", "versions", "detect"],
+        ["profile", "add", "unsafe", "--host", "https://host.example", "--public-key", "pk"],
+        ["api", "prompts", "create", "--type", "chat", "--name", "invalid", "--prompt", "not-json"],
+      ]) {
+        const rejected = await cli("--json", "--dry-run", ...args);
+        expect(process.exitCode).toBe(2);
+        expect(rejected.stdout).toBe("");
+      }
+      const dir = await mkdtemp(join(tmpdir(), "langfuse-plan-file-"));
+      try {
+        const path = join(dir, "existing.json");
+        await writeFile(path, "keep existing output");
+        await cli("--dry-run", "--out-file", path, "api", "prompts", "list");
+        expect(process.exitCode).toBe(2);
+        expect(await readFile(path, "utf8")).toBe("keep existing output");
+      } finally { await rm(dir, {recursive: true, force: true}); }
+      await cli("--dry-run=false", "api", "prompts", "list");
+      expect(process.exitCode).toBe(2);
+      expect(calls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalSecret === undefined) delete process.env.LANGFUSE_SECRET_KEY;
+      else process.env.LANGFUSE_SECRET_KEY = originalSecret;
+    }
+  }));
   test("unsafe profile hosts fail before writing or sending a request", () => scratchCli(async (cli) => {
     const originalFetch = globalThis.fetch;
     let calls = 0;
