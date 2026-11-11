@@ -1,4 +1,5 @@
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, rename, rm } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { text as streamText } from "node:stream/consumers";
 
 import packageJson from "../package.json";
@@ -1234,6 +1235,23 @@ export function schemaOutput(contract: ApiContract, resource?: string, action?: 
   };
 }
 
+async function saveOutput(path: string, content: string): Promise<void> {
+  let temporary: string | undefined;
+  try {
+    temporary = await mkdtemp(join(dirname(path), ".langfuse-output-"));
+    const file = join(temporary, "output");
+    await writeFile(file, content, {mode: 0o600});
+    await rename(file, path);
+  } catch (error) {
+    throw new CliError(
+      `Cannot write --out-file ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      EXIT_LOCAL,
+    );
+  } finally {
+    if (temporary) await rm(temporary, {recursive: true, force: true});
+  }
+}
+
 export async function writeResult(
   result: ApiResult,
   config: RuntimeConfig,
@@ -1247,14 +1265,7 @@ export async function writeResult(
         : typeof result.body === "string"
         ? result.body
         : JSON.stringify(result.body, null, 2);
-    try {
-      await writeFile(config.outFile, content ?? "");
-    } catch (error) {
-      throw new CliError(
-        `Cannot write --out-file ${config.outFile}: ${error instanceof Error ? error.message : String(error)}`,
-        EXIT_LOCAL,
-      );
-    }
+    await saveOutput(config.outFile, content ?? "");
   } else {
     process.stdout.write(
       renderSuccess(config.outputMode, command, result.body, {
@@ -1282,7 +1293,7 @@ export async function runApi(
   providedCatalog?: ApiContractCatalog,
 ): Promise<void> {
   if (config.dryRun) {
-    if (config.curl || config.outFile) throw new CliError("--dry-run cannot be combined with --curl or --out-file; redirect stdout to save a plan");
+    if (config.curl) throw new CliError("--dry-run cannot be combined with --curl");
     if (config.apiVersion === "auto") throw new CliError("--dry-run is offline; choose a bundled --api-version instead of auto");
     if (!args[1] || ["versions", "schema", "__schema", "__spec", "help", "search"].includes(args[0])) throw new CliError("--dry-run requires an API resource and action");
   }
@@ -1423,12 +1434,14 @@ export async function runApi(
   const input = await parseOperationInput(operation, pagination.tokens);
   if (config.dryRun) {
     const request = prepareRequest({ host: config.host, timeoutMs: config.timeoutMs }, operation, input, false);
-    process.stdout.write(renderSuccess(config.outputMode, "api.plan", {
+    const plan = {
       executed: false, apiVersion: contract.apiVersion, operationId: operation.operationId,
       method: request.method, url: request.url.href, headers: Object.fromEntries(request.headers),
       ...(request.body === undefined ? {} : {body: JSON.parse(request.body)}),
       authenticationRequired: operation.auth.required, validation: "local_contract_only",
-    }));
+    };
+    if (config.outFile) await saveOutput(config.outFile, JSON.stringify(plan, null, 2) + "\n");
+    else process.stdout.write(renderSuccess(config.outputMode, "api.plan", plan));
     return;
   }
   // Credentials are resolved here, at the last possible moment, so every

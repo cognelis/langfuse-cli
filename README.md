@@ -444,7 +444,7 @@ contain sensitive data even though stored/environment authentication is omitted.
 
 Choose an explicit bundled version or `latest`; `auto` would need a server
 probe and is refused. Preview covers one request: `--all`, `--max-items`,
-`--curl`, and `--out-file` are refused. Redirect JSON stdout to save a plan.
+and `--curl` are refused. Use `--out-file` to save a plan atomically, or redirect JSON stdout.
 Local contract validation does not replace server validation or authorization.
 For execution, keep the reviewed input and version, perform the usual profile
 and doctor preflight, and remove `--dry-run` only for an authorized operation.
@@ -484,3 +484,24 @@ the same scope. Table mode shows the corresponding resource or operation help.
 Choose a fixed bundled version for local inspection; `auto` retains its existing
 server detection behavior. After `api search`, inspect a scoped schema before
 constructing a dry-run instead of loading the whole API inventory.
+
+### Save a reviewed API plan
+
+```sh
+langfuse-cli --api-version 4.16.0 --dry-run --out-file plan.json api prompts create --type text --name draft --prompt 'Hello'
+```
+
+The file contains the plan object (`executed`, URL, headers, body, API version),
+without the response envelope. Stdout is empty. Validation completes before the
+file is replaced, so invalid input does not overwrite an earlier plan. Both plans
+and ordinary `--out-file` responses are written to a private sibling temporary
+directory and renamed into place; Unix file mode is 0600. Existing parent
+directories are required. Symlinks are replaced rather than followed: pass the
+actual target path if that is what should be updated.
+
+A plan is a review artifact, not an API request body or a replay command. Keep
+original body files separate. For authorized execution, reuse the original
+inputs/version and remove `--dry-run`; omit or change `--out-file` so the response
+does not overwrite the reviewed plan. Input values can be sensitive even though
+stored/environment authentication is omitted. Failed HTTP response bodies are
+still saved by ordinary execution; check its exit code before using an artifact.

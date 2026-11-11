@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile, mkdir, stat, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -1082,7 +1082,7 @@ describe("exit code taxonomy", () => {
       try {
         const path = join(dir, "existing.json");
         await writeFile(path, "keep existing output");
-        await cli("--dry-run", "--out-file", path, "api", "prompts", "list");
+        await cli("--dry-run", "--out-file", path, "api", "prompts", "create");
         expect(process.exitCode).toBe(2);
         expect(await readFile(path, "utf8")).toBe("keep existing output");
       } finally { await rm(dir, {recursive: true, force: true}); }
@@ -1754,4 +1754,59 @@ describe.skipIf(!contractsLoaded)("scoped API schema", () => {
       expect(rejected.stdout).toBe("");
     }
   }));
+});
+
+
+describe("saved API plans", () => {
+  test("saves an offline plan privately and leaves files intact on validation failure", () => scratchCli(async (cli) => {
+    const dir = await mkdtemp(join(tmpdir(), "langfuse-save-plan-"));
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; throw new Error("unexpected request"); }) as typeof fetch;
+    try {
+      const file = join(dir, "plan.json");
+      process.exitCode = 0;
+      const output = await cli("--api-version", "4.16.0", "--dry-run", "--out-file", file,
+        "api", "prompts", "create", "--type", "text", "--name", "draft", "--prompt", "hello");
+      expect(process.exitCode).toBe(0);
+      expect(output.stdout).toBe("");
+      const saved = await readFile(file, "utf8");
+      const plan = JSON.parse(saved);
+      expect(plan.executed).toBe(false);
+      expect(plan.method).toBe("POST");
+      expect(plan.body.prompt).toBe("hello");
+      expect(plan.headers.authorization).toBeUndefined();
+      if (process.platform !== "win32") expect((await stat(file)).mode & 0o777).toBe(0o600);
+      await cli("--dry-run", "--out-file", file, "api", "prompts", "create");
+      expect(process.exitCode).toBe(2);
+      expect(await readFile(file, "utf8")).toBe(saved);
+      const directoryTarget = join(dir, "directory");
+      await mkdir(directoryTarget);
+      const before = await readdir(dir);
+      await cli("--dry-run", "--out-file", directoryTarget, "api", "prompts", "list");
+      expect(process.exitCode).toBe(6);
+      expect((await readdir(dir)).sort()).toEqual(before.sort());
+      expect(calls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      await rm(dir, {recursive: true, force: true});
+    }
+  }));
+
+  test.skipIf(process.platform === "win32")("response output replaces a symlink instead of overwriting its target", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "langfuse-output-link-"));
+    const target = join(dir, "original.json");
+    const output = join(dir, "response.json");
+    try {
+      await writeFile(target, "keep me");
+      await symlink(target, output);
+      await writeResult({status:200, headers:{}, body:{saved:true}, ok:true}, {
+        host:"https://example.com", timeoutMs:1000, outputMode:"json", curl:false, showSecrets:false,
+        outFile:output, configFile:Config.empty(join(dir,"config.json")), store:fileStore(join(dir,"credentials.json")), environment:{},
+      });
+      expect(await readFile(target, "utf8")).toBe("keep me");
+      expect(JSON.parse(await readFile(output, "utf8"))).toEqual({saved:true});
+      expect((await stat(output)).mode & 0o777).toBe(0o600);
+    } finally { await rm(dir, {recursive:true, force:true}); }
+  });
 });

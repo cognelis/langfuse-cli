@@ -16,6 +16,7 @@
 //
 // Nothing here tags, pushes or publishes. The npm package is built separately
 // by scripts/build.ts and never contains these executables.
+import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -203,6 +204,13 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
   const plan = JSON.parse(planned.stdout);
   if (plan.command !== "api.plan" || plan.data.executed !== false || plan.data.headers.authorization !== undefined) {
     fail("offline API request plan must be unexecuted and omit authentication");
+  }
+  const planPath = join(sandbox, "reviewed-plan.json");
+  const savedPlan = run(["--dry-run", "--api-version", "4.16.0", "--out-file", planPath, "api", "prompts", "list"]);
+  if (savedPlan.status !== 0 || savedPlan.stdout !== "") fail("saving an offline plan failed");
+  const saved = JSON.parse(readFileSync(planPath, "utf8"));
+  if (saved.executed !== false || saved.method !== "GET" || saved.headers.authorization !== undefined) {
+    fail("saved plan must be unexecuted and omit authentication");
   }
   if (usage.status !== 2 || usage.stdout.length !== 0 || usage.stderr.trim().length === 0) {
     fail(

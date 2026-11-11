@@ -12,6 +12,13 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ### Added
 
+- `--dry-run --out-file PATH` saves the unexecuted request plan without an
+  envelope or stdout output, after input validation and without authentication.
+- All `--out-file` writes now use a private sibling temporary directory and atomic
+  replacement. Unix files use mode 0600. Symlink destinations are replaced instead
+  of modifying their targets; callers that intend to update a linked target should
+  pass its real path. Existing HTTP response/error-body behavior is unchanged.
+
 - `api schema [resource] [action]` returns a scoped schema with complete
   parameter/body/auth metadata and the original snapshot identity. Aliases resolve
   to canonical commands; schema aliases and shell completion support the same scope.
@@ -28,7 +35,7 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
   environment authentication is not resolved or included. The plan uses the
   same path, query, and body serializer as execution.
 - Offline preview requires a bundled API version (not `auto`) and one request;
-  it rejects `--curl`, `--all`, `--max-items`, and `--out-file` combinations.
+  it rejects `--curl`, `--all`, and `--max-items` combinations.
 
 
 ## [2.6.0] - 2026-11-11

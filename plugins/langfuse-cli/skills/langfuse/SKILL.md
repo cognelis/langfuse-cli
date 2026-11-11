@@ -34,7 +34,7 @@ allowed-tools:
 
 ## Review one API request locally
 
-For input composition, add `--dry-run` to an API operation and choose a bundled `--api-version` (never `auto`). It validates the local contract and returns `api.plan` with `executed: false`, URL, headers, body, and authentication requirements. It never fetches or reads stored credentials; supplied request values are still printed. Do not combine it with `--all`, `--max-items`, `--curl`, or `--out-file`. Select the intended profile and complete doctor before real execution; remove only `--dry-run` from the reviewed operation when that operation is authorized. A valid local plan is not server validation or permission to mutate data.
+For input composition, add `--dry-run` to an API operation and choose a bundled `--api-version` (never `auto`). It validates the local contract and returns `api.plan` with `executed: false`, URL, headers, body, and authentication requirements. It never fetches or reads stored credentials; supplied request values are still printed. Do not combine it with `--all`, `--max-items`, or `--curl`. Use `--out-file plan.json` to atomically save the raw plan object with empty stdout. It is a review artifact, not a request body: do not pass the entire plan to `--body-file`. Keep original input files separate. Select the intended profile and complete doctor before real execution; reuse the original operation inputs/version without `--dry-run` when authorized, and omit/change `--out-file` to keep the reviewed plan intact. A valid local plan is not server validation or permission to mutate data.
 
 ## Doctor version checks
 
