@@ -12,6 +12,11 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ### Added
 
+- `api search <terms...>` searches the selected bundled API snapshot offline
+  by command, alias, operation ID, route, method, and description; returns
+  canonical commands with version and deprecation details. No config or credentials
+  are needed. Multiple case-insensitive terms must all match; `auto` is refused.
+
 - API operations accept `--dry-run` to validate inputs against the selected
   bundled contract and emit a structured, unexecuted request plan. Profile and
   environment authentication is not resolved or included. The plan uses the

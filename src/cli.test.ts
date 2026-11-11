@@ -1683,3 +1683,47 @@ describe.skipIf(!contractsLoaded)("doctor contract check", () => {
       }),
     ));
 });
+
+describe.skipIf(!contractsLoaded)("offline API discovery", () => {
+  test("search finds canonical operations across aliases and snapshots without network requests", () => scratchCli(async (cli) => {
+    process.exitCode = 0;
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; throw new Error("unexpected request"); }) as typeof fetch;
+    try {
+      const output = await cli("--json", "--api-version", "4.16.0", "api", "search", "PROMPTS", "create");
+      expect(process.exitCode).toBe(0);
+      const results = JSON.parse(output.stdout);
+      expect(results.command).toBe("api.search");
+      expect(results.data.some((row: any) => row.command === "api prompts create" && row.method === "POST")).toBe(true);
+      expect(new Set(results.data.map((row: any) => row.operationId)).size).toBe(results.data.length);
+      const alias = await cli("--json", "api", "search", "prompts-v2", "create");
+      expect(JSON.parse(alias.stdout).data.some((row: any) => row.command === "api prompts create")).toBe(true);
+      const dir = await mkdtemp(join(tmpdir(), "langfuse-search-"));
+      try {
+        const broken = join(dir, "config.json");
+        await writeFile(broken, "{");
+        const offline = await cli("--config-file", broken, "--json", "api", "search", "prompts");
+        expect(JSON.parse(offline.stdout).data.length).toBeGreaterThan(0);
+        const out = join(dir, "keep.json");
+        await writeFile(out, "unchanged");
+        await cli("--out-file", out, "api", "search", "prompts");
+        expect(process.exitCode).toBe(2);
+        expect(await readFile(out, "utf8")).toBe("unchanged");
+      } finally { await rm(dir, { recursive: true, force: true }); }
+      const none = await cli("--json", "api", "search", "no_such_operation_12345");
+      expect(JSON.parse(none.stdout).data).toEqual([]);
+      const old = await cli("--json", "--api-version", "3.50.0", "api", "search", "/api/public/experiments");
+      expect(JSON.parse(old.stdout).data).toEqual([]);
+      const modern = await cli("--json", "--api-version", "4.16.0", "api", "search", "/api/public/experiments");
+      expect(JSON.parse(modern.stdout).data.length).toBeGreaterThan(0);
+      for (const args of [[], ["   "], ["--typo"], ["prompts", "--typo"]]) {
+        await cli("api", "search", ...args);
+        expect(process.exitCode).toBe(2);
+      }
+      await cli("--api-version", "auto", "api", "search", "prompts");
+      expect(process.exitCode).toBe(2);
+      expect(calls).toBe(0);
+    } finally { globalThis.fetch = originalFetch; }
+  }));
+});

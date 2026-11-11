@@ -187,6 +187,10 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
     fail("the installed standalone Skill does not match the embedded files");
   }
 
+  const search = run(["--api-version", "4.16.0", "--json", "api", "search", "prompts-v2", "create"]);
+  if (search.status !== 0 || !JSON.parse(search.stdout).data.some((item: {command: string}) => item.command === "api prompts create")) {
+    fail("offline API command search failed in the standalone binary");
+  }
   const usage = run(["api", "nosuchresource"]);
   const planned = run(["--dry-run", "--api-version", "4.16.0", "--json", "api", "prompts", "create", "--type", "text", "--name", "release-smoke", "--prompt", "hello"]);
   if (planned.status !== 0) fail("offline API request planning failed in the standalone binary");

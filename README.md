@@ -448,3 +448,22 @@ probe and is refused. Preview covers one request: `--all`, `--max-items`,
 Local contract validation does not replace server validation or authorization.
 For execution, keep the reviewed input and version, perform the usual profile
 and doctor preflight, and remove `--dry-run` only for an authorized operation.
+
+### Find an API command offline
+
+```sh
+langfuse-cli --api-version 4.16.0 --json api search prompts create
+langfuse-cli --api-version 4.16.0 --json api search /api/public/experiments
+```
+
+Search uses case-insensitive substrings; all whitespace-separated terms must
+match the same operation. It checks canonical names, aliases, operation IDs,
+HTTP methods, routes, summaries, and descriptions. Results contain canonical
+commands, routes, methods, API versions, and deprecation markers; no matches is
+an empty array with exit 0. Follow with `api help <resource> <action>` and a dry-run.
+
+Search ignores connection configuration, profiles and credentials. Select the
+snapshot with `--api-version` or `LANGFUSE_API_VERSION` (default `latest`);
+`auto` is refused because it would contact a server. `--curl`, `--out-file`, and
+`--dry-run` do not apply. Discovery is not proof that the target server supports
+an endpoint; check its version and permissions before execution.

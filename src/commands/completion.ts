@@ -270,9 +270,11 @@ export async function complete(
         ...resourceItems(contract),
         command("help", "Show API help"),
         command("schema", "Machine-readable command schema"),
+        command("search", "Search bundled operations offline"),
         command("versions", "Bundled contract versions"),
       ];
     }
+    if (second === "search") return [];
     if (second === "versions") {
       return third
         ? []

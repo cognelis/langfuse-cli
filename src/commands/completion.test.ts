@@ -230,6 +230,8 @@ describe.skipIf(!contractsLoaded)("api candidates come from the bundled contract
     expect(result).toContain("traces");
     expect(result).toContain("help");
     expect(result).toContain("schema");
+    expect(result).toContain("search");
+    expect(await values(["api", "search"])).toEqual([]);
     expect(result).toContain("versions");
   });
 

@@ -209,7 +209,8 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   const configFilePath = globals.values["config-file"] ?? defaultConfigPath();
   const isDoctor = globals.args[0] === "doctor";
   const isConfigPath = globals.args[0] === "config" && globals.args[1] === "path";
-  const isLocalMaintenance = isConfigPath || globals.args[0] === "skills";
+  const isLocalMaintenance = isConfigPath || globals.args[0] === "skills"
+    || (globals.args[0] === "api" && globals.args[1] === "search");
   let configFile = Config.empty(configFilePath);
   let configurationError: string | undefined;
   if (!isLocalMaintenance) {
@@ -409,6 +410,7 @@ ${resources
 
 Discovery:
   api help [resource] [action]
+  api search <terms...>      Search bundled operations offline (all terms must match)
   api schema --json          Machine-readable command schema
   api __schema --json        Legacy command alias
   api versions list          Bundled historical snapshots
@@ -1274,9 +1276,32 @@ export async function runApi(
   if (config.dryRun) {
     if (config.curl || config.outFile) throw new CliError("--dry-run cannot be combined with --curl or --out-file; redirect stdout to save a plan");
     if (config.apiVersion === "auto") throw new CliError("--dry-run is offline; choose a bundled --api-version instead of auto");
-    if (!args[1] || ["versions", "schema", "__schema", "__spec", "help"].includes(args[0])) throw new CliError("--dry-run requires an API resource and action");
+    if (!args[1] || ["versions", "schema", "__schema", "__spec", "help", "search"].includes(args[0])) throw new CliError("--dry-run requires an API resource and action");
   }
   const catalog = providedCatalog ?? (await loadContractCatalog());
+  if (args[0] === "search") {
+    if (config.apiVersion === "auto") throw new CliError("api search is offline; choose a bundled --api-version instead of auto");
+    if (config.curl || config.outFile) throw new CliError("api search does not support --curl or --out-file; redirect stdout to save results");
+    const terms = args.slice(1).flatMap((term) => term.toLowerCase().trim().split(/\s+/)).filter(Boolean);
+    if (!terms.length || args.slice(1).some((term) => term.startsWith("-"))) {
+      throw new CliError("Usage: langfuse-cli api search <terms...> [--api-version VERSION] [--json]");
+    }
+    const resolved = await resolveContractVersion({ requested: config.apiVersion, host: config.host, timeoutMs: config.timeoutMs, catalog });
+    const contract = await loadApiContract(resolved.version);
+    const matches = contract.operations.filter((operation) => {
+      const text = [operation.command.resource, operation.command.action, operation.operationId,
+        operation.method, operation.path, operation.summary, operation.description,
+        ...(operation.command.aliases ?? []).map((alias) => `${alias.resource} ${alias.action}`)].join(" ").toLowerCase();
+      return terms.every((term) => text.includes(term));
+    }).map((operation) => ({
+      command: `api ${operation.command.resource} ${operation.command.action}`,
+      method: operation.method, path: operation.path, operationId: operation.operationId,
+      summary: operation.summary ?? "", deprecated: operation.deprecated ?? false,
+      apiVersion: contract.apiVersion,
+    })).sort((left, right) => left.command.localeCompare(right.command));
+    process.stdout.write(renderSuccess(config.outputMode, "api.search", matches));
+    return;
+  }
   if (args[0] === "versions") {
     const action = args[1] ?? "list";
     if (action === "help" || action === "--help" || action === "-h") {
