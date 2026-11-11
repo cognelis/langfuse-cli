@@ -1,8 +1,9 @@
 {
   "name": "@cognelis/langfuse-cli",
-  "version": "2.4.4",
+  "version": "2.5.0",
   "description": "Interact with the Langfuse API from the command line, with keyring-backed profiles",
-  "author": "Langfuse",
+  "author": {"name": "dnvyrn", "email": "dnvyrn@gamil.com"},
+  "contributors": [{"name": "dnvyrn", "email": "dnvyrn@gamil.com"}, {"name": "Codex", "url": "https://openai.com/codex/"}, {"name": "Claude", "url": "https://claude.ai/"}],
   "license": "MIT",
   "repository": {
     "type": "git",

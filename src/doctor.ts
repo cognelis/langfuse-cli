@@ -49,6 +49,10 @@ export class DoctorReport {
     ];
   }
 
+  append(check: DoctorCheck): void {
+    this.checks.push(check);
+  }
+
   pass(index: number, message: string): void {
     this.set(index, "pass", message);
   }

@@ -1,4 +1,5 @@
 ---
+version: 2.5.0
 name: langfuse
 description: >-
   Interact with Langfuse and access its documentation: tracing, monitoring, creating datasets, running experiments, and evaluating AI applications. Use when needing to (1) query or modify Langfuse data, (2) look up Langfuse documentation, concepts, integration guides, a feature or SDK usage, or (3) do any AI engineering task (AI observability, prompt engineering/management, evaluation and evaluator management, experimentation, dataset management, evaluation-driven CI/CD, feedback collection). Invoke it for tasks in this scope even when Langfuse is not configured or explicitly mentioned.
@@ -20,6 +21,21 @@ allowed-tools:
 ---
 
 # Langfuse
+
+## Doctor version checks
+
+When invoking `doctor`, set `LANGFUSE_CLI_SKILL` to the `version` in this loaded
+file's frontmatter. Do not infer it from the installed CLI's version: the agent
+may still have an older Skill in context. Without this handshake, doctor can
+inspect installed files but cannot know which Skill the agent loaded.
+
+`langfuse-cli doctor` also checks the latest stable GitHub release (at most five
+seconds, or the command timeout if shorter). Use `doctor --no-update-check`
+for offline work. The appended `package` and `skill` rows are informational:
+update availability, missing or outdated Skills, and lookup failures do not
+change connection health or the exit code. Upgrade the CLI first if needed,
+run `langfuse-cli skills install`, then reload the agent context.
+
 
 This skill helps you use Langfuse effectively across all common workflows: instrumenting applications, migrating prompts, debugging traces, and accessing data programmatically.
 

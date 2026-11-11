@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 
 import { loadCatalog, readVerifiedSpec } from "../conformance/src/catalog";
@@ -59,6 +59,9 @@ await Bun.write(
 // SKILL.md links to resolvable once installed.
 const skillSource = resolve(root, "plugins/langfuse-cli/skills/langfuse");
 const skillTarget = resolve(dist, "skills/langfuse");
+const manifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
+const skillHeader = (await readFile(resolve(skillSource, "SKILL.md"), "utf8")).split(/^---\s*$/m)[1] ?? "";
+if (!skillHeader.split(/\r?\n/).includes(`version: ${manifest.version}`)) throw new Error("Bundled Skill version must match the CLI before building");
 const skillEntries = await readdir(skillSource, {
   recursive: true,
   withFileTypes: true,

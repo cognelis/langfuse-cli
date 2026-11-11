@@ -10,6 +10,26 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-11
+
+### Changed
+
+- Record the maintainer as `dnvyrn <dnvyrn@gamil.com>` and document Codex/Claude
+  collaboration. Future commits include meaningful rationale and validation,
+  with AI co-author trailers only for actual participants; history is unchanged.
+
+### Added
+
+- Doctor now appends informational package-release and companion-Skill version
+  checks, preserving connection health, exit codes, existing check order, and
+  display layout. Release lookup is bounded to five seconds and can be skipped
+  with `doctor --no-update-check`.
+- Bundled Skills carry synchronized version metadata. Doctor distinguishes
+  loaded and installed versions, detects stale or legacy unversioned copies,
+  and suggests CLI upgrade, Skill refresh, and agent-context reload in order.
+  Refresh legacy installations with `skills install` after upgrading.
+
+
 ## [2.4.4] - 2026-11-11
 
 ### Fixed

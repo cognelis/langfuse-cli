@@ -286,7 +286,7 @@ Usage: langfuse [options] <command>
 
 Commands:
   init                    Guided setup: create or repair a profile
-  doctor                  Diagnose the active connection (read-only)
+  doctor [--no-update-check] Diagnose connection and package/Skill versions
   api                     Interact with the Langfuse REST API
   auth                    login | check | logout
   profile                 add | update | list | show | use | remove
@@ -1380,7 +1380,7 @@ export async function runApi(
 }
 
 /** Options that exist only inside a connection subcommand. */
-const SUBCOMMAND_BOOLEANS = new Set(["secret-key-stdin", "no-verify"]);
+const SUBCOMMAND_BOOLEANS = new Set(["secret-key-stdin", "no-verify", "no-update-check"]);
 
 const PROFILE_USAGE = `Usage:
   langfuse-cli profile add <name> --host <url> --public-key <pk> [--description <text>] [--api-version <version>]

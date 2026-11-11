@@ -1,11 +1,12 @@
 {
   "name": "langfuse-cli",
   "owner": {
-    "name": "langfuse-cli contributors"
+    "name": "dnvyrn",
+    "email": "dnvyrn@gamil.com"
   },
   "metadata": {
     "description": "Langfuse CLI skills for Claude Code",
-    "version": "2.4.4"
+    "version": "2.5.0"
   },
   "plugins": [
     {

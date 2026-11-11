@@ -316,7 +316,8 @@ export async function complete(
     return [];
   }
 
-  if (head === "doctor" || head === "init") return GLOBAL_FLAGS;
+  if (head === "doctor") return [...GLOBAL_FLAGS, option("--no-update-check", "Skip the release update lookup")];
+  if (head === "init") return GLOBAL_FLAGS;
   return [];
 }
 

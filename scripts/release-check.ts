@@ -82,6 +82,11 @@ for (const entry of VERSIONED.slice(1)) {
   }
 }
 
+const skill = await readFile(resolve(root, "plugins/langfuse-cli/skills/langfuse/SKILL.md"), "utf8");
+const skillHeader = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(skill)?.[1];
+const skillVersions = [...(skillHeader ?? "").matchAll(/^version: (.+)$/gm)];
+if (skillVersions.length !== 1 || skillVersions[0][1] !== version) problems.push("The bundled Skill must carry the product version");
+
 const changelog = await readFile(resolve(root, "CHANGELOG.md"), "utf8");
 const headings = [...changelog.matchAll(/^## \[([^\]]+)\](?: - (\S+))?/gm)].map(
   (match) => ({ version: match[1], date: match[2] }),

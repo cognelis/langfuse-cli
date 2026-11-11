@@ -271,3 +271,24 @@ gh release view vX.Y.Z --repo cognelis/langfuse-cli
 
 The standalone executables are release assets, never npm contents: the package
 would otherwise carry ~450 MB of binaries that no `npm i -g` install can use.
+
+## 第五轮：doctor 包与 Skill 版本诊断
+
+参考 `/Users/caspian/git/jenkins-cli/internal/app/doctor.go` 的诊断规则：更新查询最多 5 秒，
+可显式跳过；加载版本与安装版本分开判断，升级信息不参与连接健康或退出码计算。
+新检查追加到原报告末尾，保留原有列与输出 envelope；版本信息来自公开发布元数据和本地 Skill 文件，
+不复用业务认证。Skill frontmatter 版本随产品版本更新，并由发布检查防止漂移。
+
+发布时除四个 JSON manifests 外，必须同步 `plugins/langfuse-cli/skills/langfuse/SKILL.md` 的 `version`；build 与 release:check 均校验一致性。
+
+## 提交与贡献者
+
+提交正文、验证记录和 AI 署名遵循 [提交规范](docs/commit-conventions.md)。项目维护者及 AI 协作工具见 [CONTRIBUTORS.md](CONTRIBUTORS.md)。
+
+## 第五轮验收
+
+2.5.0：209 项测试、593 项 API conformance、类型检查及发布检查通过。
+包版本查询使用模拟发布响应覆盖更新、离线/错误、超时与响应大小边界；Skill 覆盖缺失、旧版、未知、当前、需重载、项目安装及不可读状态。
+贡献者和提交规范一同进入本版本，后续 Author 为 `dnvyrn <dnvyrn@gamil.com>`，AI trailer 只记录实际参与者。
+
+本轮本地安装和 Skill 内容已核验；Rust 两个包的 npm tarball 安装冒烟通过。三个 doctor 的实际表格输出保持原样，维护检查只追加行。

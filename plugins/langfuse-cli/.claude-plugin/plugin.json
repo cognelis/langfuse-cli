@@ -1,9 +1,10 @@
 {
   "name": "langfuse-cli",
-  "version": "2.4.4",
+  "version": "2.5.0",
   "description": "Use the Langfuse CLI safely in shell, CI, and JSON automation workflows.",
   "author": {
-    "name": "langfuse-cli contributors"
+    "name": "dnvyrn",
+    "email": "dnvyrn@gamil.com"
   },
   "homepage": "https://github.com/cognelis/langfuse-cli",
   "repository": "https://github.com/cognelis/langfuse-cli",

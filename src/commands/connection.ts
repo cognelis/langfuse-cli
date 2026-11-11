@@ -5,6 +5,7 @@
 // echoed, logged or included in any output. `config show` and `profile show`
 // report whether a secret exists, never what it is.
 import packageJson from "../../package.json";
+import { maintenanceChecks } from "../maintenance";
 
 import {
   Config,
@@ -634,6 +635,7 @@ export async function doctor(context: CommandContext): Promise<void> {
     }
   }
 
+  for (const check of await maintenanceChecks(context.booleans.has("no-update-check"), context.timeoutMs)) report.append(check);
   const payload = report.toJSON();
   if (context.outputMode === "table") {
     process.stdout.write(`${report.render()}\n`);

@@ -1382,6 +1382,38 @@ describe("profile API versions", () => {
 });
 
 describe.skipIf(!contractsLoaded)("doctor contract check", () => {
+  test("maintenance checks run without a connection and update lookup can be skipped", () =>
+    scratchCli(async (cli) => {
+      const originalFetch = globalThis.fetch;
+      const originalHost = process.env.LANGFUSE_HOST;
+      const originalBase = process.env.LANGFUSE_BASE_URL;
+      delete process.env.LANGFUSE_HOST;
+      delete process.env.LANGFUSE_BASE_URL;
+      let calls = 0;
+      globalThis.fetch = (async () => {
+        calls++;
+        return Response.json({ tag_name: "v99.0.0" });
+      }) as typeof fetch;
+      try {
+        const output = await cli("--json", "doctor");
+        const report = JSON.parse(output.stdout).data;
+        expect(report.healthy).toBe(false);
+        expect(process.exitCode).toBe(3);
+        expect(report.checks.slice(-2).map((check: { name: string }) => check.name)).toEqual(["package", "skill"]);
+        expect(report.checks.at(-2).message).toStartWith("update_available:");
+        expect(calls).toBe(1);
+        const skipped = JSON.parse((await cli("--json", "doctor", "--no-update-check")).stdout).data;
+        expect(skipped.checks.at(-2).status).toBe("skipped");
+        expect(calls).toBe(1);
+      } finally {
+        globalThis.fetch = originalFetch;
+        if (originalHost === undefined) delete process.env.LANGFUSE_HOST;
+        else process.env.LANGFUSE_HOST = originalHost;
+        if (originalBase === undefined) delete process.env.LANGFUSE_BASE_URL;
+        else process.env.LANGFUSE_BASE_URL = originalBase;
+      }
+    }));
+
   /**
    * Answers the two requests doctor makes — the health probe, reporting
    * `version`, and the project list — recording each one, with a secret key in
@@ -1423,7 +1455,7 @@ describe.skipIf(!contractsLoaded)("doctor contract check", () => {
         const fit = autoContractVersion(catalog, "3.162.0");
         await cli(...selfhosted);
 
-        const report = JSON.parse((await cli("--json", "--profile", "selfhosted", "doctor")).stdout);
+        const report = JSON.parse((await cli("--json", "--profile", "selfhosted", "doctor", "--no-update-check")).stdout);
         expect(report.data.checks[5]).toEqual({
           name: "contract",
           status: "pass",
@@ -1434,7 +1466,7 @@ describe.skipIf(!contractsLoaded)("doctor contract check", () => {
         expect(process.exitCode ?? 0).toBe(0);
         expect(requests).toHaveLength(2);
 
-        const table = await cli("--output", "table", "--profile", "selfhosted", "doctor");
+        const table = await cli("--output", "table", "--profile", "selfhosted", "doctor", "--no-update-check");
         expect(table.stdout).toMatch(
           /^contract +pass +API contract \S+ does not fit Langfuse 3\.162\.0 /m,
         );
@@ -1446,7 +1478,7 @@ describe.skipIf(!contractsLoaded)("doctor contract check", () => {
       againstServer("3.162.0", async () => {
         const fix = "pass --api-version auto or set LANGFUSE_API_VERSION=auto";
         const contract = async (...args: string[]): Promise<string> =>
-          JSON.parse((await cli("--json", ...args, "doctor")).stdout).data.checks[5].message;
+          JSON.parse((await cli("--json", ...args, "doctor", "--no-update-check")).stdout).data.checks[5].message;
 
         expect(
           await contract("--host", "https://langfuse.internal.example.com", "--public-key", "pk-lf-self"),
@@ -1465,7 +1497,7 @@ describe.skipIf(!contractsLoaded)("doctor contract check", () => {
         const fit = autoContractVersion(await loadContractCatalog(), "3.162.0");
         await cli(...selfhosted, "--api-version", "auto");
 
-        const report = JSON.parse((await cli("--json", "--profile", "selfhosted", "doctor")).stdout);
+        const report = JSON.parse((await cli("--json", "--profile", "selfhosted", "doctor", "--no-update-check")).stdout);
         expect(report.data.checks[5]).toEqual({
           name: "contract",
           status: "pass",

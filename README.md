@@ -369,3 +369,31 @@ See the full [Langfuse API Reference](https://api.reference.langfuse.com/).
 The CLI is implemented in TypeScript and runs on Node.js 20+ or Bun. It has zero external runtime dependencies and never parses OpenAPI during invocation.
 
 See [MAINTENANCE.md](MAINTENANCE.md) for build, API snapshot, testing, and release workflows. The version-pinned black-box suite is documented separately in [`conformance/README.md`](conformance/README.md).
+
+### Doctor version checks
+
+Doctor appends `package` and `skill` checks without changing the existing report
+layout, connection health, or exit codes. The package check compares the running
+CLI with the latest stable `cognelis/langfuse-cli` GitHub release, with a five-second
+limit (or the command timeout if shorter). `doctor --no-update-check` skips
+that request; offline, malformed, oversized, or unavailable release responses
+are reported as skipped. No service credentials are sent to the release API.
+
+The Skill check compares the bundled version with installed Codex/Agents and
+Claude copies in global and current-project skill directories, honoring
+`CLAUDE_CONFIG_DIR`. `LANGFUSE_CLI_SKILL` carries the version actually loaded
+by the agent; without it, installed files do not prove the agent loaded them.
+Messages distinguish current, outdated, unknown, not installed, installed but
+not loaded, and reload-required states. Refresh with `langfuse-cli skills install`
+and reload the agent context after upgrading. Legacy Skills without a version
+are reported as unknown; reinstall them to establish version alignment.
+
+`LANGFUSE_CLI_RELEASE_API` can select a trusted GitHub-compatible release
+metadata mirror (JSON with `tag_name`). It is independent of service profiles.
+
+## Contributors
+
+Maintained by **dnvyrn** (`dnvyrn@gamil.com`), with Codex and Claude available as AI collaborators. Actual participation is recorded per commit. See [Contributors](https://github.com/cognelis/langfuse-cli/blob/main/CONTRIBUTORS.md) and the [commit policy](https://github.com/cognelis/langfuse-cli/blob/main/docs/commit-conventions.md).
+
+For the informational `package` and `skill` rows, `pass` means the inspection
+completed; the message states whether an update or reload is needed.
