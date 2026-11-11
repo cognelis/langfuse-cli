@@ -292,3 +292,11 @@ would otherwise carry ~450 MB of binaries that no `npm i -g` install can use.
 贡献者和提交规范一同进入本版本，后续 Author 为 `dnvyrn <dnvyrn@gamil.com>`，AI trailer 只记录实际参与者。
 
 本轮本地安装和 Skill 内容已核验；Rust 两个包的 npm tarball 安装冒烟通过。三个 doctor 的实际表格输出保持原样，维护检查只追加行。
+
+## 第六轮 RSI：请求与结果的相邻边界
+
+原实现接受并保存含 userinfo/query/fragment 的 Host，读取旧配置也绕过校验；无效 URL 异常还回显原文。八个原始失败反例被固定为回归用例，统一校验创建、更新、环境、显式参数及保存的 URL。错误保留配置路径，不显示凭据、不自动修改原文件；记录手动修复旧配置的迁移要求。
+
+第六轮验收：2.5.1：220 项测试、593 项 conformance、类型与发布检查通过；合法反向代理路径和编码分隔符保持可用。 未实测生产服务及其他操作系统。
+
+本轮本地 CLI/Skills 已刷新，124 个安装文件与源码核对一致；两个 Rust 包的安装冒烟通过。按新提交规范记录动机、变更、验证与实际 Codex 署名，不推送或发布。

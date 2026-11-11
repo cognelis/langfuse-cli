@@ -10,6 +10,19 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-11-11
+
+### Security
+
+- Host URLs now reject user information, queries, and fragments before profile
+  persistence or requests, including URLs loaded from saved profiles. Invalid
+  URL errors no longer echo the supplied value. Reverse-proxy paths remain valid.
+- Migration: remove credentials, query strings, and fragments from any affected
+  saved `host` value in the config file named by the error. Store API credentials
+  with `auth login` or supported environment variables. Files are never rewritten
+  automatically, and rejected updates leave existing profiles unchanged.
+
+
 ## [2.5.0] - 2026-11-11
 
 ### Changed

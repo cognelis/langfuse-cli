@@ -1043,6 +1043,20 @@ describe("pagination with --all", () => {
 });
 
 describe("exit code taxonomy", () => {
+  test("unsafe profile hosts fail before writing or sending a request", () => scratchCli(async (cli) => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; throw new Error("unexpected request"); }) as typeof fetch;
+    try {
+      const output = await cli("--json", "profile", "add", "unsafe", "--host", "https://u:TOP_SECRET@host.example", "--public-key", "pk");
+      expect(process.exitCode).toBe(3);
+      expect(output.stdout).toBe("");
+      expect(output.stderr).toContain("user information");
+      expect(output.stderr).not.toContain("TOP_SECRET");
+      expect((await cli("--json", "profile", "list")).stdout).not.toContain("unsafe");
+      expect(calls).toBe(0);
+    } finally { globalThis.fetch = originalFetch; }
+  }));
   const getOperation: ApiOperation = {
     key: "GET /api/public/v2/prompts/{promptName}",
     operationId: "prompts_get",

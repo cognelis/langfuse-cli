@@ -48,6 +48,27 @@ function trackingStore(entries: Record<string, string> = {}): CredentialStore & 
 }
 
 describe("host normalization", () => {
+  test.each([
+    "https://user:TOP_SECRET@host.example/proxy",
+    "https://host.example/proxy?token=TOP_SECRET",
+    "https://host.example/proxy#TOP_SECRET",
+    "https://host.example/proxy?",
+    "https://host.example/proxy#",
+    "https://user:TOP_SECRET@[invalid",
+  ])("rejects unsafe host URLs without echoing their contents: %s", (host) => {
+    try {
+      normalizeHost(host);
+      throw new Error("expected host rejection");
+    } catch (error) {
+      expect(error).toBeInstanceOf(CliError);
+      expect((error as CliError).exitCode).toBe(3);
+      expect((error as Error).message).not.toContain("TOP_SECRET");
+    }
+  });
+
+  test("preserves valid reverse-proxy paths and encoded delimiters", () => {
+    expect(normalizeHost("https://host.example/lf%3F%23/proxy/")).toBe("https://host.example/lf%3F%23/proxy");
+  });
   test("strips trailing slashes and keeps the scheme", () => {
     expect(normalizeHost("https://a.example.com///")).toBe("https://a.example.com");
   });
@@ -62,6 +83,26 @@ describe("host normalization", () => {
 });
 
 describe("profile storage", () => {
+  test("loading a stored unsafe host fails without echoing or rewriting it", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "langfuse-invalid-host-"));
+    try {
+      const path = join(directory, "config.json");
+      const text = JSON.stringify({ profiles: { test: { host: "https://u:TOP_SECRET@host.example", publicKey: "pk" } } });
+      await writeFile(path, text);
+      const result = Config.load(path);
+      await expect(result).rejects.toBeInstanceOf(CliError);
+      await expect(result).rejects.toMatchObject({ exitCode: 3 });
+      await expect(result).rejects.toThrow(path);
+      await expect(result).rejects.not.toThrow("TOP_SECRET");
+      expect(await readFile(path, "utf8")).toBe(text);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("unsafe profile updates leave the existing target unchanged", () => {
+    const config = configWith({ test: { host: HOST, publicKey: "pk" } });
+    expect(() => config.updateProfile("test", { host: "https://u:TOP_SECRET@host.example" })).toThrow();
+    expect(config.profile("test")?.host).toBe(HOST);
+  });
   test("the first profile added becomes current", () => {
     const config = configWith({ a: { host: HOST, publicKey: "pk-a" } });
     expect(config.currentProfile).toBe("a");
@@ -202,6 +243,12 @@ describe("profile storage", () => {
 });
 
 describe("connection resolution", () => {
+  test("explicit and environment hosts use the same credential-free boundary", () => {
+    const config = Config.empty("/tmp/unused-config.json");
+    const host = "https://u:TOP_SECRET@host.example";
+    expect(() => config.resolveTarget({ explicitHost: host })).toThrow("user information");
+    expect(() => config.resolveTarget({ environmentHost: host })).toThrow("user information");
+  });
   test("order is --host, --profile, environment, then the default profile", () => {
     const config = configWith(
       { a: { host: "https://a.example.com", publicKey: "pk-a" }, b: { host: "https://b.example.com", publicKey: "pk-b" } },

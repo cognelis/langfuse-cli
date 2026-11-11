@@ -80,15 +80,21 @@ export function normalizeHost(host: string): string {
     parsed = new URL(trimmed);
   } catch {
     throw new CliError(
-      `Invalid host URL: ${host} (include the scheme, for example https://cloud.langfuse.com)`,
+      "Invalid host URL (include the scheme, for example https://cloud.langfuse.com)",
       EXIT_CONFIG,
     );
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new CliError(
-      `Unsupported host scheme: ${parsed.protocol.replace(":", "")}`,
+      "Unsupported host scheme (use http or https)",
       EXIT_CONFIG,
     );
+  }
+  if (parsed.username || parsed.password) {
+    throw new CliError("Host URL must not contain user information; store credentials with auth login", EXIT_CONFIG);
+  }
+  if (parsed.href.includes("?") || parsed.href.includes("#")) {
+    throw new CliError("Host URL must not contain a query or fragment", EXIT_CONFIG);
   }
   return trimmed;
 }
@@ -151,7 +157,14 @@ export class Config {
         EXIT_CONFIG,
       );
     }
-    return new Config(path, normalizeData(parsed));
+    try {
+      return new Config(path, normalizeData(parsed));
+    } catch (error) {
+      if (error instanceof CliError) {
+        throw new CliError(`Invalid host in config file ${path}: ${error.message}`, error.exitCode);
+      }
+      throw error;
+    }
   }
 
   get profiles(): Record<string, ProfileConfig> {
@@ -399,7 +412,7 @@ function normalizeData(parsed: unknown): ConfigData {
     const host = typeof entry.host === "string" ? entry.host : undefined;
     if (!host) continue;
     profiles[name] = {
-      host: host.replace(/\/+$/, ""),
+      host: normalizeHost(host),
       publicKey: typeof entry.publicKey === "string" ? entry.publicKey : "",
       ...(typeof entry.description === "string" && entry.description
         ? { description: entry.description }

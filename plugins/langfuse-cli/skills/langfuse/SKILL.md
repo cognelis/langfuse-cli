@@ -1,5 +1,5 @@
 ---
-version: 2.5.0
+version: 2.5.1
 name: langfuse
 description: >-
   Interact with Langfuse and access its documentation: tracing, monitoring, creating datasets, running experiments, and evaluating AI applications. Use when needing to (1) query or modify Langfuse data, (2) look up Langfuse documentation, concepts, integration guides, a feature or SDK usage, or (3) do any AI engineering task (AI observability, prompt engineering/management, evaluation and evaluator management, experimentation, dataset management, evaluation-driven CI/CD, feedback collection). Invoke it for tasks in this scope even when Langfuse is not configured or explicitly mentioned.
@@ -109,6 +109,8 @@ langfuse-cli doctor --json
 langfuse-cli profile list
 langfuse-cli --profile prod api projects list
 ```
+
+Host URLs must use HTTP(S) and may include a reverse-proxy path, but no user information, query, or fragment. Rejected legacy saved hosts must be corrected in the config file named by the error; do not put credentials into the URL.
 
 Never ask the user to paste a secret key into the conversation, and never pass
 one on the command line. There is deliberately no `--secret-key` flag, because
