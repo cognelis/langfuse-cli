@@ -10,6 +10,14 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-11-11
+
+### Fixed
+
+- Cursor pagination with `--all` detects repeated cursors, including cycles and
+  a repeated initial `--cursor`, and exits 4 before requesting duplicate pages.
+  Item and request caps keep their existing behavior.
+
 ## [2.4.3] - 2026-11-11
 
 ### Fixed

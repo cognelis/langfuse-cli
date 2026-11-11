@@ -1076,6 +1076,8 @@ export async function callAllPages(
   maxItems = DEFAULT_MAX_ITEMS,
 ): Promise<ApiResult> {
   const items: JsonValue[] = [];
+  const seenCursors = new Set<string>();
+  if (typeof input.query.cursor === "string") seenCursors.add(input.query.cursor);
   let pages = 0;
   let truncated = false;
   let totalItems: number | undefined;
@@ -1148,7 +1150,13 @@ export async function callAllPages(
       );
       break;
     }
-    if (operation.pagination === "cursor") input.query.cursor = nextCursor!;
+    if (operation.pagination === "cursor") {
+      if (seenCursors.has(nextCursor!)) {
+        throw new CliError("--all received a repeated cursor; refusing to collect duplicate pages", EXIT_NETWORK);
+      }
+      seenCursors.add(nextCursor!);
+      input.query.cursor = nextCursor!;
+    }
   }
   return {
     status: last.status,

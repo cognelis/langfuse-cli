@@ -966,6 +966,24 @@ describe("pagination with --all", () => {
     });
   });
 
+  for (const { cursors, initial, calls } of [
+    { cursors: ["a", "a"], initial: undefined, calls: 2 },
+    { cursors: ["a", "b", "a"], initial: undefined, calls: 3 },
+    { cursors: ["a"], initial: "a", calls: 1 },
+  ]) {
+    test(`rejects repeated cursors ${cursors.join("/")} from ${initial ?? "start"}`, async () => {
+      const client = stubClient(cursors.map((cursor, index) => ({
+        data: [index], meta: { cursor },
+      })));
+      const result = callAllPages(client, listOperation("cursor"), {
+        path: {}, query: initial ? { cursor: initial } : {}, headers: {}, cookies: {},
+      });
+      await expect(result).rejects.toMatchObject({ exitCode: 4 });
+      await expect(result).rejects.toThrow("--all received a repeated cursor");
+      expect(client.calls.length).toBe(calls);
+    });
+  }
+
   test("caps requests at 100 pages regardless of --max-items", async () => {
     let calls = 0;
     const endless = {

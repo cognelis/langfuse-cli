@@ -183,6 +183,7 @@ only the payload. Diagnostics go to stderr, so stdout stays pipeable.
 Exit codes: `0` success, `2` usage, `3` configuration or credentials, `4`
 network or unusable version-detection/pagination response, `5` HTTP error, `6` local file.
 If a later `--all` page has no data array, the command fails without emitting a partial result.
+Repeated cursors also fail before requesting duplicate pages; do not treat that failure as a complete result.
 `doctor` writes its full report to
 stdout even when it exits nonzero, so capture stdout before testing the status.
 

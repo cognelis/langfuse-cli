@@ -48,6 +48,12 @@ HTTP 测试需要本机临时监听端口；沙箱拒绝监听时，应记录环
 验证记录：2.4.3 的 201 项测试、593 项 conformance、类型检查和版本检查全部通过。
 本机 CLI 已更新为 2.4.3，Codex 与 Claude 的独立 Skills 已核对与源码一致。
 
+第四轮（2026-11-11）：构造相邻重复游标、跨页循环和初始 cursor 被重返三个反例。
+原实现均请求到 100 页上限并累积重复数据；现在在再次请求已访问游标前以退出码 4 失败。
+复用分页函数，保留 max-items 与 100 页上限；既有终止游标、合法分页和数量截断用例继续验证。
+2.4.4 验收：204 项测试、593 项 conformance、类型检查和版本检查全部通过。
+本机 CLI 与 Codex/Claude 独立 Skills 已刷新并核验。
+
 方法参考：[Darwin Gödel Machine](https://arxiv.org/abs/2505.22954) 的候选修改与实测验证，
 以及 [Agent evals](https://www.anthropic.com/research/demystifying-evals-for-ai-agents) 的失败样本积累与回归检查。
 
