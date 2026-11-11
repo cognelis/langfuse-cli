@@ -1,5 +1,5 @@
 ---
-version: 2.5.1
+version: 2.5.2
 name: langfuse
 description: >-
   Interact with Langfuse and access its documentation: tracing, monitoring, creating datasets, running experiments, and evaluating AI applications. Use when needing to (1) query or modify Langfuse data, (2) look up Langfuse documentation, concepts, integration guides, a feature or SDK usage, or (3) do any AI engineering task (AI observability, prompt engineering/management, evaluation and evaluator management, experimentation, dataset management, evaluation-driven CI/CD, feedback collection). Invoke it for tasks in this scope even when Langfuse is not configured or explicitly mentioned.
@@ -38,6 +38,8 @@ run `langfuse-cli skills install`, then reload the agent context.
 
 
 This skill helps you use Langfuse effectively across all common workflows: instrumenting applications, migrating prompts, debugging traces, and accessing data programmatically.
+
+If the configuration file is unreadable or invalid, `doctor` still prints its report and exits 3; it skips service probes and credential-store reads. Use `config path` to locate the file without parsing it. Package/Skill checks remain independent; no configuration is rewritten automatically.
 
 ## Core Principles
 

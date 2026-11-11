@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 
@@ -1395,7 +1395,82 @@ describe("profile API versions", () => {
     }));
 });
 
+describe("configuration recovery", () => {
+  for (const contents of ["TOP_SECRET invalid JSON", JSON.stringify({ profiles: { broken: { host: "https://u:TOP_SECRET@host.example", publicKey: "pk" } } })]) {
+    test(`doctor and config path remain usable for ${contents.startsWith("{") ? "invalid host" : "invalid JSON"}`, async () => {
+      const directory = await mkdtemp(join(tmpdir(), "langfuse-recovery-"));
+      const path = join(directory, "config.json");
+      const originalFetch = globalThis.fetch;
+      const originalExit = process.exitCode;
+      let calls = 0;
+      globalThis.fetch = (async () => { calls++; throw new Error("unexpected network request"); }) as typeof fetch;
+      try {
+        await writeFile(path, contents);
+        const output = await captureOutput(() => run(["node", "langfuse-cli", "--config-file", path, "--json", "doctor", "--host", "https://host.example", "--no-update-check"]));
+        expect(process.exitCode).toBe(3);
+        expect(output.stderr).toBe("");
+        expect(output.stdout).not.toContain("TOP_SECRET");
+        const report = JSON.parse(output.stdout).data;
+        expect(report.healthy).toBe(false);
+        expect(report.checks[1].status).toBe("fail");
+        expect(report.checks.slice(2, 6).every((check: {status: string}) => check.status === "skipped")).toBe(true);
+        expect(report.checks.slice(-2).map((check: {name: string}) => check.name)).toEqual(["package", "skill"]);
+        process.exitCode = 0;
+        const located = await captureOutput(() => run(["node", "langfuse-cli", "--config-file", path, "--json", "config", "path"]));
+        expect(process.exitCode).toBe(0);
+        expect(JSON.parse(located.stdout).data.path).toBe(path);
+        const shown = await captureOutput(() => run(["node", "langfuse-cli", "--config-file", path, "--json", "config", "show"]));
+        expect(process.exitCode).toBe(3);
+        expect(shown.stdout).toBe("");
+        expect(shown.stderr).not.toContain("TOP_SECRET");
+        expect(calls).toBe(0);
+        expect(await readFile(path, "utf8")).toBe(contents);
+      } finally {
+        globalThis.fetch = originalFetch;
+        process.exitCode = originalExit;
+        await rm(directory, {recursive: true, force: true});
+      }
+    });
+  }
+});
+
 describe.skipIf(!contractsLoaded)("doctor contract check", () => {
+  test("invalid environment hosts cannot trigger a probe or leak into diagnostics", () => scratchCli(async (cli) => {
+    const originalFetch = globalThis.fetch;
+    const originalHost = process.env.LANGFUSE_HOST;
+    const originalBase = process.env.LANGFUSE_BASE_URL;
+    process.env.LANGFUSE_HOST = "https://u:TOP_SECRET@host.example";
+    delete process.env.LANGFUSE_BASE_URL;
+    let calls = 0;
+    globalThis.fetch = (async () => { calls++; throw new Error("unexpected network request"); }) as typeof fetch;
+    try {
+      for (const flags of [[], ["--host", "https://u:TOP_SECRET@host.example"], ["--profile", "missing"]]) {
+        const output = await cli("--json", "doctor", "--no-update-check", ...flags);
+        expect(process.exitCode).toBe(3);
+        expect(output.stderr).toBe("");
+        expect(output.stdout).not.toContain("TOP_SECRET");
+        const checks = JSON.parse(output.stdout).data.checks;
+        expect(checks[1].status).toBe("fail");
+        expect(checks[3].status).toBe("skipped");
+      }
+      const detection = await cli("--json", "api", "versions", "detect");
+      expect(process.exitCode).toBe(3);
+      expect(detection.stdout).toBe("");
+      expect(detection.stderr).not.toContain("TOP_SECRET");
+      process.exitCode = 0;
+      const profiles = await cli("--json", "profile", "list");
+      expect(process.exitCode).toBe(0);
+      expect(JSON.parse(profiles.stdout).data).toEqual([]);
+      expect(calls).toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalHost === undefined) delete process.env.LANGFUSE_HOST;
+      else process.env.LANGFUSE_HOST = originalHost;
+      if (originalBase === undefined) delete process.env.LANGFUSE_BASE_URL;
+      else process.env.LANGFUSE_BASE_URL = originalBase;
+    }
+  }));
+
   test("maintenance checks run without a connection and update lookup can be skipped", () =>
     scratchCli(async (cli) => {
       const originalFetch = globalThis.fetch;

@@ -45,6 +45,7 @@ import { checkAuth, checkHealth } from "../verify";
 
 export interface CommandContext {
   config: Config;
+  configurationError?: string;
   store: CredentialStore;
   outputMode: OutputMode;
   timeoutMs: number;
@@ -565,13 +566,16 @@ export async function doctor(context: CommandContext): Promise<void> {
   const report = new DoctorReport(packageJson.version);
 
   let connection: ResolvedConnection | undefined;
+  let host: string | undefined;
   try {
+    if (context.configurationError) throw new CliError(context.configurationError, EXIT_CONFIG);
     const target = context.config.resolveTarget({
       explicitHost: context.hostFlag,
       explicitPublicKey: context.publicKeyFlag,
       selectedProfile: context.profileFlag,
       environmentHost: context.environment.host,
     });
+    host = target.host;
     report.pass(
       CHECK_CONFIGURATION,
       target.profile
@@ -601,7 +605,6 @@ export async function doctor(context: CommandContext): Promise<void> {
     );
   }
 
-  const host = connection?.host ?? context.hostFlag ?? context.environment.host;
   if (host) {
     const health = await checkHealth(host, context.timeoutMs);
     if (health.ok) report.pass(CHECK_API, health.message);

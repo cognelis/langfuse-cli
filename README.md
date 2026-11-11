@@ -372,6 +372,8 @@ The CLI is implemented in TypeScript and runs on Node.js 20+ or Bun. It has zero
 
 See [MAINTENANCE.md](MAINTENANCE.md) for build, API snapshot, testing, and release workflows. The version-pinned black-box suite is documented separately in [`conformance/README.md`](conformance/README.md).
 
+Doctor still prints its report if the config file is unreadable or invalid, marks configuration failed, and skips service probes. Package/Skill diagnostics remain independent. Use `config path` to locate the file without parsing it; regular commands still refuse invalid configuration, and no repair is performed automatically.
+
 ### Doctor version checks
 
 Doctor appends `package` and `skill` checks without changing the existing report

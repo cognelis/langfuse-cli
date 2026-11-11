@@ -151,9 +151,9 @@ export class Config {
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
-    } catch (error) {
+    } catch {
       throw new CliError(
-        `The config file ${path} is not valid JSON: ${error instanceof Error ? error.message : String(error)}`,
+        `The config file ${path} is not valid JSON; repair it before connecting`,
         EXIT_CONFIG,
       );
     }

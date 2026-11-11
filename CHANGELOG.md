@@ -10,6 +10,22 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-11-11
+
+### Fixed
+
+- Doctor now emits its full report and exits 3 when configuration cannot be read
+  or is invalid, while skipping service probes and retaining package/Skill
+  diagnostics. `config path` remains usable without parsing the configuration.
+- Doctor probes only validated targets; invalid environment hosts fail before API
+  version detection instead of falling back to the public cloud host.
+
+### Security
+
+- Malformed configuration errors no longer include JSON parser excerpts that can
+  echo secrets. Diagnostics preserve the repair path without rewriting files.
+
+
 ## [2.5.1] - 2026-11-11
 
 ### Security

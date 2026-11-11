@@ -92,6 +92,7 @@ interface RuntimeConfig {
   showSecrets: boolean;
   outFile?: string;
   configFile: Config;
+  configurationError?: string;
   store: CredentialStore;
   environment: { host?: string; publicKey?: string; secretKey?: string };
   hostFlag?: string;
@@ -204,14 +205,26 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   const outputFlag = requestedOutputMode(globals);
   const outputMode = outputFlag ?? (process.stdout.isTTY ? "table" : "json");
   const configFilePath = globals.values["config-file"] ?? defaultConfigPath();
-  const configFile = await Config.load(configFilePath);
+  const isDoctor = globals.args[0] === "doctor";
+  const isConfigPath = globals.args[0] === "config" && globals.args[1] === "path";
+  let configFile = Config.empty(configFilePath);
+  let configurationError: string | undefined;
+  if (!isConfigPath) {
+    try {
+      configFile = await Config.load(configFilePath);
+    } catch (error) {
+      if (!isDoctor) throw error;
+      configurationError = `Configuration file ${configFilePath} is unreadable or invalid; repair it before connecting`;
+    }
+  }
   // The file fallback lives beside the config it belongs to, so pointing
   // --config-file at a scratch directory isolates credentials as well.
   // LANGFUSE_CREDENTIAL_STORE=file forces that backend, for tests and for hosts
   // with no reachable keyring.
   const store = await resolveCredentialStore({
     fallbackPath: fallbackCredentialPath(configFilePath),
-    forceFile: env.LANGFUSE_CREDENTIAL_STORE === "file",
+    // Recovery paths never read this store, so they must not probe the system keyring.
+    forceFile: isConfigPath || configurationError !== undefined || env.LANGFUSE_CREDENTIAL_STORE === "file",
   });
   const environment = {
     host: env.LANGFUSE_BASE_URL ?? env.LANGFUSE_HOST,
@@ -236,7 +249,8 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
   } catch (error) {
     // An explicitly named profile that does not exist is a real error; an
     // absent configuration simply falls back to the public cloud host.
-    if (globals.values.profile || globals.values.host) throw error;
+    if (!isDoctor && !isConfigPath &&
+        (globals.values.profile || globals.values.host || (globals.args[0] === "api" && environment.host))) throw error;
   }
 
   return {
@@ -256,6 +270,7 @@ async function runtimeConfig(globals: ParsedGlobals): Promise<RuntimeConfig> {
     showSecrets: globals.booleans.has("show-secrets"),
     outFile: globals.values["out-file"],
     configFile,
+    configurationError,
     store,
     environment,
     hostFlag: globals.values.host,
@@ -1437,6 +1452,7 @@ function commandContext(
 ): CommandContext {
   return {
     config: config.configFile,
+    configurationError: config.configurationError,
     store: config.store,
     outputMode: config.outputMode,
     timeoutMs: config.timeoutMs,

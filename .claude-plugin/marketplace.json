@@ -6,7 +6,7 @@
   },
   "metadata": {
     "description": "Langfuse CLI skills for Claude Code",
-    "version": "2.5.1"
+    "version": "2.5.2"
   },
   "plugins": [
     {

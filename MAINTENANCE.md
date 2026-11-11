@@ -300,3 +300,11 @@ would otherwise carry ~450 MB of binaries that no `npm i -g` install can use.
 第六轮验收：2.5.1：220 项测试、593 项 conformance、类型与发布检查通过；合法反向代理路径和编码分隔符保持可用。 未实测生产服务及其他操作系统。
 
 本轮本地 CLI/Skills 已刷新，124 个安装文件与源码核对一致；两个 Rust 包的安装冒烟通过。按新提交规范记录动机、变更、验证与实际 Codex 署名，不推送或发布。
+
+## 第七轮 RSI：异常结果与诊断恢复
+
+配置加载发生在 doctor 分发之前，导致坏 JSON 或危险 Host 直接退出且不产生报告，config path 也无法使用。限定 doctor 的恢复路径保存配置错误，所有依赖检查跳过，维护检查继续；config path 不读取配置。正常业务命令仍拒绝坏配置，JSON 解析错误不回显原文。验证目标后才进行健康探测，防止无效环境 Host 泄露或触发错误目标探测。
+
+第七轮验收：2.5.2：223 项测试、593 项 conformance、类型与发布检查通过。坏配置恢复测试验证报告在 stdout、exit 3、无服务请求、不回显内容且文件保持原样；config path 可用，普通 config show 仍拒绝坏配置。 未实测生产服务及其他操作系统。
+
+本轮 CLI 与 Skills 已更新，124 个安装文件与源码逐一核对，两个 Rust npm tarball 冒烟通过。Langfuse 安装后的坏配置诊断和路径定位也通过隔离配置验证。按新规范提交，不推送或发布。
