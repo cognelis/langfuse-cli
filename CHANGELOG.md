@@ -12,6 +12,12 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ### Added
 
+- `api schema [resource] [action]` returns a scoped schema with complete
+  parameter/body/auth metadata and the original snapshot identity. Aliases resolve
+  to canonical commands; schema aliases and shell completion support the same scope.
+  Unknown names, extra arguments and unknown options now fail instead of silently
+  returning the full schema; omit the scope to keep the existing full output.
+
 - `api search <terms...>` searches the selected bundled API snapshot offline
   by command, alias, operation ID, route, method, and description; returns
   canonical commands with version and deprecation details. No config or credentials

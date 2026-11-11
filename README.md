@@ -467,3 +467,20 @@ snapshot with `--api-version` or `LANGFUSE_API_VERSION` (default `latest`);
 `auto` is refused because it would contact a server. `--curl`, `--out-file`, and
 `--dry-run` do not apply. Discovery is not proof that the target server supports
 an endpoint; check its version and permissions before execution.
+
+### Inspect only the schema you need
+
+```sh
+langfuse-cli --api-version 4.16.0 --json api schema prompts
+langfuse-cli --api-version 4.16.0 --json api schema prompts create
+```
+
+The shape stays `{schemaVersion, apiVersion, sourceSha256, resources}` inside
+`data`; only the resource/action set is narrowed. Parameter, request-body,
+authentication, alias and deprecation details are preserved. A resource or
+operation alias resolves to canonical names. Omitting the scope keeps the full
+schema; unknown names or extra arguments exit 2. `__schema` and `__spec` accept
+the same scope. Table mode shows the corresponding resource or operation help.
+Choose a fixed bundled version for local inspection; `auto` retains its existing
+server detection behavior. After `api search`, inspect a scoped schema before
+constructing a dry-run instead of loading the whole API inventory.

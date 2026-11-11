@@ -1727,3 +1727,31 @@ describe.skipIf(!contractsLoaded)("offline API discovery", () => {
     } finally { globalThis.fetch = originalFetch; }
   }));
 });
+
+
+describe.skipIf(!contractsLoaded)("scoped API schema", () => {
+  test("returns only the requested resource or canonical operation and rejects typos", () => scratchCli(async (cli) => {
+    process.exitCode = 0;
+    const full = JSON.parse((await cli("--api-version", "4.16.0", "--json", "api", "schema")).stdout).data;
+    const scoped = JSON.parse((await cli("--api-version", "4.16.0", "--json", "api", "schema", "prompts")).stdout).data;
+    expect(scoped.resources).toEqual(full.resources.filter((r: any) => r.name === "prompts"));
+    expect(scoped.sourceSha256).toBe(full.sourceSha256);
+    const one = JSON.parse((await cli("--api-version", "4.16.0", "--json", "api", "schema", "prompts-v2", "create")).stdout).data;
+    expect(one.resources).toHaveLength(1);
+    expect(one.resources[0].name).toBe("prompts");
+    expect(one.resources[0].actions).toHaveLength(1);
+    expect(one.resources[0].actions[0]).toEqual(scoped.resources[0].actions.find((a: any) => a.name === "create"));
+    const legacy = JSON.parse((await cli("--api-version", "4.16.0", "--json", "api", "__schema", "prompts", "create")).stdout).data;
+    expect(legacy).toEqual(one);
+    const help = await cli("api", "schema", "--help");
+    expect(help.stdout).toContain("[resource] [action]");
+    const table = await cli("--api-version", "4.16.0", "--output", "table", "api", "schema", "prompts", "create");
+    expect(table.stdout).toContain("api prompts create");
+    expect(table.stdout).not.toContain("Resources:");
+    for (const args of [["missing-resource"], ["prompts", "missing-action"], ["prompts", "get", "extra"], ["--typo"]]) {
+      const rejected = await cli("--json", "api", "schema", ...args);
+      expect(process.exitCode).toBe(2);
+      expect(rejected.stdout).toBe("");
+    }
+  }));
+});

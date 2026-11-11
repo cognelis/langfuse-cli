@@ -235,6 +235,13 @@ describe.skipIf(!contractsLoaded)("api candidates come from the bundled contract
     expect(result).toContain("versions");
   });
 
+  test("scoped schema completes resources and actions", async () => {
+    expect(await values(["api", "schema"])).toContain("prompts");
+    expect(await values(["api", "schema", "prompts"])).toContain("create");
+    expect(await values(["api", "schema", "prompts", "create"])).toEqual([]);
+    expect(await values(["api", "__schema", "prompts"])).toContain("create");
+  });
+
   test("a resource completes its actions", async () => {
     const result = await values(["api", "prompts"]);
     expect(result).toContain("list");

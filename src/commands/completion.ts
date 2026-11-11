@@ -284,9 +284,11 @@ export async function complete(
             command("detect", "Detect the server version"),
           ];
     }
-    if (second === "help" || second === "schema") {
-      return second === "help" && !third ? resourceItems(contract) : [];
+    if (["schema", "__schema", "__spec"].includes(second)) {
+      if (!third) return resourceItems(contract);
+      return parts.length === 3 ? actionItems(contract, third) : [];
     }
+    if (second === "help") return !third ? resourceItems(contract) : [];
     if (!third) return actionItems(contract, second);
     const operation = contract.operations.find(
       (candidate) =>

@@ -89,7 +89,7 @@ Follow these principles for Langfuse API, SDK, and data workflows:
 Use `langfuse-cli` to interact with the full Langfuse REST API from the command
 line. It is installed globally; do not invoke it through `npx` or `bunx`.
 
-If the command is unknown, use `--api-version <bundled-version> api search <terms...>` first. Search is offline, ignores profiles/configuration, and matches all case-insensitive terms against command names, aliases, routes, IDs and descriptions. It returns canonical commands, including deprecation markers. No matches means no match in that snapshot, not proof that the server lacks a capability. Use `api help` on a result; request the full schema only when a machine-readable inventory is needed. Never use `auto` for offline search.
+If the command is unknown, use `--api-version <bundled-version> api search <terms...>` first. Search is offline, ignores profiles/configuration, and matches all case-insensitive terms against command names, aliases, routes, IDs and descriptions. It returns canonical commands, including deprecation markers. No matches means no match in that snapshot, not proof that the server lacks a capability. Use `api help` on a result for human-readable options, or `api schema <resource> [action] --json` for the exact parameter/body/auth schema. Aliases resolve to canonical names. Request the full schema only when a complete machine-readable inventory is needed. Never use `auto` for offline search.
 
 Discover commands and their arguments:
 
@@ -97,7 +97,10 @@ Discover commands and their arguments:
 # Find candidate commands in a fixed snapshot
 langfuse-cli --api-version 4.16.0 --json api search prompts create
 
-# Full machine-readable inventory when needed
+# Machine-readable fields for one operation
+langfuse-cli --api-version 4.16.0 --json api schema prompts create
+
+# Full machine-readable inventory only when needed
 langfuse-cli api schema --json
 
 # List actions for a resource

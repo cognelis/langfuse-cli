@@ -191,6 +191,12 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
   if (search.status !== 0 || !JSON.parse(search.stdout).data.some((item: {command: string}) => item.command === "api prompts create")) {
     fail("offline API command search failed in the standalone binary");
   }
+  const scopedSchema = run(["--api-version", "4.16.0", "--json", "api", "schema", "prompts", "create"]);
+  if (scopedSchema.status !== 0) fail("scoped API schema failed in the standalone binary");
+  const resources = JSON.parse(scopedSchema.stdout).data.resources;
+  if (resources.length !== 1 || resources[0].name !== "prompts" || resources[0].actions.length !== 1 || resources[0].actions[0].name !== "create") {
+    fail("scoped schema must include exactly the requested operation");
+  }
   const usage = run(["api", "nosuchresource"]);
   const planned = run(["--dry-run", "--api-version", "4.16.0", "--json", "api", "prompts", "create", "--type", "text", "--name", "release-smoke", "--prompt", "hello"]);
   if (planned.status !== 0) fail("offline API request planning failed in the standalone binary");

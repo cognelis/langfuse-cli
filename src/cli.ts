@@ -411,7 +411,7 @@ ${resources
 Discovery:
   api help [resource] [action]
   api search <terms...>      Search bundled operations offline (all terms must match)
-  api schema --json          Machine-readable command schema
+  api schema [resource] [action] --json  Full or scoped command schema
   api __schema --json        Legacy command alias
   api versions list          Bundled historical snapshots
   Path commands are canonical; OpenAPI tag and route-version aliases also work
@@ -1196,12 +1196,20 @@ export async function callAllPages(
   };
 }
 
-export function schemaOutput(contract: ApiContract) {
+export function schemaOutput(contract: ApiContract, resource?: string, action?: string) {
+  let operations = contract.operations;
+  if (resource !== undefined) {
+    const bindings = resourceMap(contract).get(resource);
+    if (!bindings) throw new CliError(`Unknown API resource: ${resource}`);
+    operations = action !== undefined
+      ? [operationByCommand(contract, resource, action)]
+      : [...new Set(bindings.map((binding) => binding.operation))];
+  }
   return {
     schemaVersion: 1,
     apiVersion: contract.apiVersion,
     sourceSha256: contract.sourceSha256,
-    resources: [...canonicalResourceMap(contract)].map(([name, operations]) => ({
+    resources: [...canonicalResourceMap({ ...contract, operations })].map(([name, operations]) => ({
       name,
       actions: operations.map((operation) => ({
         name: operation.command.action,
@@ -1370,9 +1378,19 @@ export async function runApi(
     return;
   }
   if (["schema", "__schema", "__spec"].includes(args[0])) {
-    const schema = schemaOutput(contract);
-    if (config.outputMode === "table") printApiHelp(contract);
-    else {
+    if (args.length === 2 && ["help", "--help", "-h"].includes(args[1])) {
+      process.stdout.write("Usage: langfuse-cli api schema [resource] [action] --json\n");
+      return;
+    }
+    if (args.length > 3 || args.slice(1).some((arg) => arg.startsWith("-"))) {
+      throw new CliError("Usage: langfuse-cli api schema [resource] [action] --json");
+    }
+    const schema = schemaOutput(contract, args[1], args[2]);
+    if (config.outputMode === "table") {
+      if (args[2]) printOperationHelp(operationByCommand(contract, args[1], args[2]));
+      else if (args[1]) printResourceHelp(contract, args[1]);
+      else printApiHelp(contract);
+    } else {
       process.stdout.write(
         renderSuccess(config.outputMode, "api.schema", schema, {
           profile: config.profile,
