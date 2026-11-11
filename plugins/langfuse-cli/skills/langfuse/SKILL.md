@@ -181,7 +181,9 @@ server and how to fix it.
 only the payload. Diagnostics go to stderr, so stdout stays pipeable.
 
 Exit codes: `0` success, `2` usage, `3` configuration or credentials, `4`
-network, `5` HTTP error, `6` local file. `doctor` writes its full report to
+network or unusable version-detection/pagination response, `5` HTTP error, `6` local file.
+If a later `--all` page has no data array, the command fails without emitting a partial result.
+`doctor` writes its full report to
 stdout even when it exits nonzero, so capture stdout before testing the status.
 
 ### Detailed CLI Reference

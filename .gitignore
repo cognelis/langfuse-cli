@@ -5,3 +5,6 @@ bun.lockb
 .env
 .env.local
 .DS_Store
+._*
+Thumbs.db
+Desktop.ini

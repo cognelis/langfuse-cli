@@ -10,6 +10,28 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
+## [2.4.3] - 2026-11-11
+
+### Fixed
+
+- `--all` now fails with exit code 4 if a later page has no data array, instead
+  of emitting earlier pages as a complete result with `truncated: false`.
+
+## [2.4.2] - 2026-11-11
+
+### Fixed
+
+- Automatic API version detection now reports invalid JSON, JSON `null`, and
+  response-body disconnects or timeouts as detection failures with exit code 4,
+  instead of unexpected internal failures.
+
+## [2.4.1] - 2026-11-11
+
+### Fixed
+
+- Response-body disconnects and timeouts now use network exit code 4, with the
+  request context, instead of falling through as unexpected internal failures.
+
 ## [2.4.0] - 2026-10-12
 
 ### Added

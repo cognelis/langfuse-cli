@@ -1006,6 +1006,22 @@ describe("pagination with --all", () => {
     expect(result.status).toBe(500);
     expect(result.ok).toBe(false);
   });
+
+  for (const pagination of ["page", "cursor"] as const) {
+    test(`${pagination} pagination rejects malformed later responses instead of reporting complete results`, async () => {
+      const client = stubClient([
+        { data: [1], meta: { page: 1, totalPages: 2, cursor: "next" } },
+        { message: "unexpected response shape" },
+      ]);
+      const result = callAllPages(client, listOperation(pagination), {
+        path: {}, query: {}, headers: {}, cookies: {},
+      });
+      await expect(result).rejects.toBeInstanceOf(CliError);
+      await expect(result).rejects.toMatchObject({ exitCode: 4 });
+      await expect(result).rejects.toThrow("--all page 2 has no data array");
+      expect(client.calls.length).toBe(2);
+    });
+  }
 });
 
 describe("exit code taxonomy", () => {

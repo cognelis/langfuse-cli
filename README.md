@@ -261,7 +261,7 @@ Diagnostics and warnings go to stderr; stdout stays clean for pipelines. The sin
 | 1 | Unexpected internal failure |
 | 2 | Invalid command or input (usage); no request sent |
 | 3 | Missing or invalid configuration/credentials; no request sent |
-| 4 | Network, DNS, TLS, or timeout failure reaching the host |
+| 4 | Network, DNS, TLS, timeout, or unusable version-detection/pagination response |
 | 5 | The API responded with a non-success HTTP status (response is still printed) |
 | 6 | Local file or bundled-contract failure |
 

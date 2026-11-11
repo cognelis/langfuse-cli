@@ -103,14 +103,25 @@ async function detectServerVersion(host: string, timeoutMs: number): Promise<str
       EXIT_NETWORK,
     );
   }
-  const body = (await response.json()) as { version?: unknown };
-  if (typeof body.version !== "string" || !parseVersion(body.version)) {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    throw new CliError(
+      `API version detection failed: GET ${url} returned invalid or unreadable JSON`,
+      EXIT_NETWORK,
+    );
+  }
+  const version = body && typeof body === "object" && "version" in body
+    ? body.version
+    : undefined;
+  if (typeof version !== "string" || !parseVersion(version)) {
     throw new CliError(
       `API version detection failed: GET ${url} returned no semantic version`,
       EXIT_NETWORK,
     );
   }
-  return body.version.replace(/^v/, "");
+  return version.replace(/^v/, "");
 }
 
 function compatibleEntry(

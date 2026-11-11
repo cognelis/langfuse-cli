@@ -1104,7 +1104,10 @@ export async function callAllPages(
     // Not a data-list response shape: behave like a plain single call.
     if (data === undefined) {
       if (pages === 1) return result;
-      break;
+      throw new CliError(
+        `--all page ${pages} has no data array; refusing to report partial results as complete`,
+        EXIT_NETWORK,
+      );
     }
     items.push(...data);
     const meta = (record?.meta ?? record?.pagination) as

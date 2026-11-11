@@ -3,7 +3,7 @@
 //   1 unexpected internal failure
 //   2 invalid command or input (usage); no request was sent
 //   3 missing or invalid configuration/credentials; no request was sent
-//   4 network, DNS, TLS, or timeout failure reaching the host
+//   4 network, DNS, TLS, timeout, or unusable detection/pagination response
 //   5 the API responded with a non-success HTTP status
 //   6 local file or bundled-contract failure
 export const EXIT_USAGE = 2;

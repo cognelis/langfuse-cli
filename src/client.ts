@@ -158,14 +158,19 @@ export function createApiClient(config: ApiClientConfig) {
 
     async call(operation: ApiOperation, input: ApiCallInput): Promise<ApiResult> {
       const prepared = prepareRequest(config, operation, input);
-      let response: Response;
       try {
-        response = await fetch(prepared.url, {
+        const response = await fetch(prepared.url, {
           method: prepared.method,
           headers: prepared.headers,
           body: prepared.body,
           signal: AbortSignal.timeout(config.timeoutMs),
         });
+        return {
+          status: response.status,
+          headers: Object.fromEntries(response.headers.entries()),
+          body: await responseBody(response),
+          ok: response.ok,
+        };
       } catch (error) {
         const cause = error instanceof Error ? error.message : String(error);
         throw new CliError(
@@ -173,12 +178,6 @@ export function createApiClient(config: ApiClientConfig) {
           EXIT_NETWORK,
         );
       }
-      return {
-        status: response.status,
-        headers: Object.fromEntries(response.headers.entries()),
-        body: await responseBody(response),
-        ok: response.ok,
-      };
     },
   };
 }

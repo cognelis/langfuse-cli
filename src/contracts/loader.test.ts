@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { autoContractVersion, resolveContractVersion } from "./loader";
+import { CliError, EXIT_NETWORK } from "../errors";
 import type { ApiContractCatalog } from "./types";
 
 const catalog: ApiContractCatalog = {
@@ -47,6 +48,30 @@ describe("API contract version resolution", () => {
 });
 
 describe("auto contract selection", () => {
+  for (const [label, response] of [
+    ["invalid JSON", () => new Response("not-json")],
+    ["null JSON", () => new Response("null")],
+    ["disconnected body", () => new Response(new ReadableStream({
+      start(controller) { controller.error(new Error("connection reset")); },
+    }))],
+    ["timed-out body", () => new Response(new ReadableStream({
+      start(controller) { controller.error(new DOMException("timed out", "TimeoutError")); },
+    }))],
+  ] as const) {
+    test(`reports ${label} as a version-detection failure`, async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async () => response()) as typeof fetch;
+      try {
+        const result = resolve("auto");
+        await expect(result).rejects.toBeInstanceOf(CliError);
+        await expect(result).rejects.toMatchObject({ exitCode: EXIT_NETWORK });
+        await expect(result).rejects.toThrow("API version detection failed: GET http://localhost:3000/api/public/health");
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  }
+
   test("picks the exact snapshot, else the newest older one of the same major", () => {
     expect(autoContractVersion(catalog, "3.150.0")).toBe("3.150.0");
     expect(autoContractVersion(catalog, "3.162.0")).toBe("3.150.0");
