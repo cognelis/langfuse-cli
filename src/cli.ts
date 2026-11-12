@@ -830,6 +830,10 @@ export async function parseOperationInput(
   operation: ApiOperation,
   tokens: string[],
 ): Promise<ApiCallInput> {
+  const bodyOptions = tokens.filter((token) => token.startsWith("--"))
+    .map(splitOption).filter((option) => ["body-json", "body-file"].includes(option.name));
+  if (bodyOptions.length > 1) throw new CliError("Choose exactly one --body-json or --body-file; repeated body sources are not allowed");
+  if (bodyOptions.some((option) => option.negated)) throw new CliError("--no-body-json and --no-body-file are not supported");
   const discriminator = operation.requestBody?.fieldFlags
     ? undefined
     : operation.requestBody?.discriminator;
@@ -838,13 +842,12 @@ export async function parseOperationInput(
     // channel only — nothing else is interpreted. Runs solely for operations
     // whose contract carries a discriminated union.
     let selected: string | undefined;
-    let bodyChannel = false;
+    const bodyChannel = bodyOptions.length === 1;
     for (let index = 0; index < tokens.length; index++) {
       const token = tokens[index];
       if (!token.startsWith("--")) continue;
       const equals = token.indexOf("=");
       const name = equals === -1 ? token.slice(2) : token.slice(2, equals);
-      if (name === "body-json" || name === "body-file") bodyChannel = true;
       if (name === discriminator.cliName) {
         const value = equals === -1 ? tokens[index + 1] : token.slice(equals + 1);
         if (value !== undefined && !value.startsWith("--")) selected = value;

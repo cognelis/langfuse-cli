@@ -38,6 +38,14 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
   it rejects `--curl`, `--all`, and `--max-items` combinations.
 
 
+### Fixed
+
+- Repeated/mixed `--body-json` and `--body-file` inputs now fail with usage exit 2
+  before file/stdin reads instead of silently using the last body. Negated body
+  source options are also rejected. Scripts must select one complete body source;
+  repeatable array field flags continue to work.
+
+
 ## [2.6.0] - 2026-11-11
 
 ### Added

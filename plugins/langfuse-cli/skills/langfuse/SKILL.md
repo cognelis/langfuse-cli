@@ -36,6 +36,8 @@ allowed-tools:
 
 For input composition, add `--dry-run` to an API operation and choose a bundled `--api-version` (never `auto`). It validates the local contract and returns `api.plan` with `executed: false`, URL, headers, body, and authentication requirements. It never fetches or reads stored credentials; supplied request values are still printed. Do not combine it with `--all`, `--max-items`, or `--curl`. Use `--out-file plan.json` to atomically save the raw plan object with empty stdout. It is a review artifact, not a request body: do not pass the entire plan to `--body-file`. Keep original input files separate. Select the intended profile and complete doctor before real execution; reuse the original operation inputs/version without `--dry-run` when authorized, and omit/change `--out-file` to keep the reviewed plan intact. A valid local plan is not server validation or permission to mutate data.
 
+Choose one complete body source: a single `--body-json` or `--body-file <path|->`, or the supported field flags. Complete-body options cannot be mixed, repeated or negated; do not rely on last-value-wins when correcting a draft. For complex bodies, edit one file and rerun dry-run. Repeatable array field flags remain valid. These checks precede body file/stdin reads and apply to normal execution as well.
+
 ## Doctor version checks
 
 When invoking `doctor`, set `LANGFUSE_CLI_SKILL` to the `version` in this loaded

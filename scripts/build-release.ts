@@ -212,6 +212,10 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
   if (saved.executed !== false || saved.method !== "GET" || saved.headers.authorization !== undefined) {
     fail("saved plan must be unexecuted and omit authentication");
   }
+  const ambiguous = run(["--api-version", "4.16.0", "--dry-run", "api", "prompts", "create", "--body-json", "{}", "--body-json", "null"]);
+  if (ambiguous.status !== 2 || ambiguous.stdout !== "" || !ambiguous.stderr.includes("exactly one")) {
+    fail("duplicate body sources must be rejected in the standalone binary");
+  }
   if (usage.status !== 2 || usage.stdout.length !== 0 || usage.stderr.trim().length === 0) {
     fail(
       `an unknown resource exited ${usage.status} with ${usage.stdout.length} bytes on stdout; ` +

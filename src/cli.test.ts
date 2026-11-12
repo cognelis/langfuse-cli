@@ -1810,3 +1810,44 @@ describe("saved API plans", () => {
     } finally { await rm(dir, {recursive:true, force:true}); }
   });
 });
+
+
+describe("unambiguous body sources", () => {
+  test("rejects repeated or negated body channels before reading a file", async () => {
+    const operation: ApiOperation = {
+      operationId:"test", key:"test", method:"POST", path:"/test",
+      command:{resource:"test",action:"create"}, pathParameterOrder:[], parameters:[],
+      auth:{required:false,schemes:[]}, requestBody:{required:true,contentType:"application/json",fieldFlags:false,fields:[]},
+    };
+    for (const tokens of [
+      ["--body-json", "{}", "--body-json", "null"],
+      ["--body-file", "/nonexistent/must-not-read.json", "--body-json", "{}"],
+      ["--body-json={}", "--body-file=-"],
+      ["--body-file=-", "--body-file=-"],
+      ["--no-body-json", "{}"], ["--no-body-file", "/nonexistent/must-not-read.json"],
+    ]) {
+      await expect(parseOperationInput(operation, tokens)).rejects.toMatchObject({exitCode:2});
+    }
+    expect((await parseOperationInput(operation, ["--body-json", "null"])).body).toBeNull();
+    expect((await parseOperationInput(operation, ["--body-json", '{"value":"--body-file"}'])).body).toEqual({value:"--body-file"});
+  });
+});
+
+
+test("ambiguous bodies leave saved plans untouched and send no request", () => scratchCli(async (cli) => {
+  const dir = await mkdtemp(join(tmpdir(), "langfuse-body-source-"));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () => { calls++; throw new Error("unexpected request"); }) as typeof fetch;
+  try {
+    const file = join(dir, "reviewed.json");
+    await writeFile(file, "keep reviewed plan");
+    const result = await cli("--api-version", "4.16.0", "--dry-run", "--out-file", file,
+      "api", "prompts", "create", "--body-json", '{"type":"text","name":"a","prompt":"first"}',
+      "--body-json", '{"type":"text","name":"a","prompt":"second"}');
+    expect(process.exitCode).toBe(2);
+    expect(result.stdout).toBe("");
+    expect(await readFile(file, "utf8")).toBe("keep reviewed plan");
+    expect(calls).toBe(0);
+  } finally { globalThis.fetch = originalFetch; await rm(dir, {recursive:true, force:true}); }
+}));

@@ -505,3 +505,19 @@ inputs/version and remove `--dry-run`; omit or change `--out-file` so the respon
 does not overwrite the reviewed plan. Input values can be sensitive even though
 stored/environment authentication is omitted. Failed HTTP response bodies are
 still saved by ordinary execution; check its exit code before using an artifact.
+
+### Select one complete request body
+
+Use one `--body-json JSON` or one `--body-file PATH|-`, or the supported body
+field flags. Repeating either complete-body option or mixing them now fails
+with exit 2 before reading any body file/stdin. The old last-body-wins behavior
+could execute a different request from the one reviewed. `--no-body-json` and
+`--no-body-file` are invalid; omit the option instead. Existing repeatable array
+field flags remain supported. For a complex body, keep one reviewed file:
+
+```sh
+langfuse-cli --api-version 4.16.0 --dry-run --out-file plan.json api prompts create --body-file prompt.json
+```
+
+The body-source rules apply to dry-run, curl rendering and normal execution.
+Keep the input body file separate from the output plan.
