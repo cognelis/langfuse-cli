@@ -206,7 +206,7 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
     fail("offline API request plan must be unexecuted and omit authentication");
   }
   const planPath = join(sandbox, "reviewed-plan.json");
-  const savedPlan = run(["--dry-run", "--api-version", "4.16.0", "--out-file", planPath, "api", "prompts", "list"]);
+  const savedPlan = run(["--dry-run", "--api-version", "4.16.0", "--out-file", planPath, "api", "prompts", "list", "--all=false"]);
   if (savedPlan.status !== 0 || savedPlan.stdout !== "") fail("saving an offline plan failed");
   const saved = JSON.parse(readFileSync(planPath, "utf8"));
   if (saved.executed !== false || saved.method !== "GET" || saved.headers.authorization !== undefined) {
@@ -216,6 +216,8 @@ function smokeTest(binary: string, version: string, sandbox: string): void {
   if (ambiguous.status !== 2 || ambiguous.stdout !== "" || !ambiguous.stderr.includes("exactly one")) {
     fail("duplicate body sources must be rejected in the standalone binary");
   }
+  const invalidPaging = run(["--api-version", "4.16.0", "api", "prompts", "list", "--all=invalid"]);
+  if (invalidPaging.status !== 2 || invalidPaging.stdout !== "") fail("invalid pagination boolean must fail before requesting data");
   if (usage.status !== 2 || usage.stdout.length !== 0 || usage.stderr.trim().length === 0) {
     fail(
       `an unknown resource exited ${usage.status} with ${usage.stdout.length} bytes on stdout; ` +

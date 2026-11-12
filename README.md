@@ -443,7 +443,7 @@ use the default cloud host. Supplied request values are included, so plans can
 contain sensitive data even though stored/environment authentication is omitted.
 
 Choose an explicit bundled version or `latest`; `auto` would need a server
-probe and is refused. Preview covers one request: `--all`, `--max-items`,
+probe and is refused. Preview covers one request: enabled `--all`/`--all=true`, `--max-items`,
 and `--curl` are refused. Use `--out-file` to save a plan atomically, or redirect JSON stdout.
 Local contract validation does not replace server validation or authorization.
 For execution, keep the reviewed input and version, perform the usual profile
@@ -521,3 +521,18 @@ langfuse-cli --api-version 4.16.0 --dry-run --out-file plan.json api prompts cre
 
 The body-source rules apply to dry-run, curl rendering and normal execution.
 Keep the input body file separate from the output plan.
+
+### Control multi-page reads explicitly
+
+```sh
+langfuse-cli api prompts list --limit 10 --all=false
+langfuse-cli api prompts list --limit 10 --all=true --max-items 50
+```
+
+Omitting `--all` or setting `--all=false` makes one request, even if the server
+reports more pages. Bare `--all` and `--all=true` enable traversal within the
+existing item/page caps. Use equals for explicit boolean values, not `--all false`.
+Other values fail instead of silently fetching all pages. `--max-items` requires
+traversal to be enabled and a positive safe integer (at most 9007199254740991).
+A successful single-page result is not proof that the complete result was read.
+Migration: scripts passing `--all=false` now get the requested single-page behavior.

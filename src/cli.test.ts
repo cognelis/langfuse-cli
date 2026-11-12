@@ -1851,3 +1851,46 @@ test("ambiguous bodies leave saved plans untouched and send no request", () => s
     expect(calls).toBe(0);
   } finally { globalThis.fetch = originalFetch; await rm(dir, {recursive:true, force:true}); }
 }));
+
+
+test("pagination flags honor explicit booleans and reject unsafe item caps", () => {
+  expect(extractPaginationFlags(["--all=false"]).all).toBe(false);
+  expect(extractPaginationFlags(["--all=true"]).all).toBe(true);
+  expect(extractPaginationFlags(["--all"]).all).toBe(true);
+  for (const value of ["", "no", "0", "FALSE"]) expect(() => extractPaginationFlags([`--all=${value}`])).toThrow();
+  expect(() => extractPaginationFlags(["--all", "--max-items", "9007199254740992"])).toThrow();
+});
+
+test("explicit all=false fetches one page even when more pages exist", () => scratchCli(async (cli) => {
+  const originalFetch = globalThis.fetch;
+  const originalSecret = process.env.LANGFUSE_SECRET_KEY;
+  process.env.LANGFUSE_SECRET_KEY = "test-secret";
+  const calls: string[] = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input)); calls.push(url.href);
+    const page = Number(url.searchParams.get("page") ?? "1");
+    return Response.json({data:[{name:`page-${page}`}], meta:{page,totalPages:2,totalItems:2}});
+  }) as typeof fetch;
+  try {
+    process.exitCode = 0;
+    const base = ["--host", "https://example.com", "--public-key", "pk-test", "--api-version", "4.16.0", "--json", "api", "prompts", "list"];
+    const one = await cli(...base, "--all=false");
+    expect(process.exitCode).toBe(0);
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse(one.stdout).data.data).toHaveLength(1);
+    calls.length = 0;
+    const all = await cli(...base, "--all=true");
+    expect(calls).toHaveLength(2);
+    expect(JSON.parse(all.stdout).data.data).toHaveLength(2);
+    calls.length = 0;
+    await cli(...base, "--all=false", "--max-items", "2");
+    expect(process.exitCode).toBe(2);
+    await cli(...base, "--all=invalid");
+    expect(process.exitCode).toBe(2);
+    expect(calls).toHaveLength(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalSecret === undefined) delete process.env.LANGFUSE_SECRET_KEY;
+    else process.env.LANGFUSE_SECRET_KEY = originalSecret;
+  }
+}));

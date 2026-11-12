@@ -114,8 +114,7 @@ langfuse-cli api <resource> <action> --help
 
 Boolean options take no value: write `--is-root-observation`,
 `--no-is-root-observation`, or `--is-root-observation=false`, never
-`--is-root-observation true`. `--all` fetches every page of a list, and
-`--max-items` caps it.
+`--is-root-observation true`. `--all` or `--all=true` traverses a list within the existing caps; `--all=false` makes one request. `--max-items` requires enabled traversal and a positive safe integer. Use equals for explicit boolean values; do not pass `--all false` or interpret one successful page as complete.
 
 ### Credentials
 

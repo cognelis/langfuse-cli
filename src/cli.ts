@@ -1051,7 +1051,9 @@ export function extractPaginationFlags(tokens: string[]): PaginationFlags {
     const equals = token.indexOf("=");
     const name = equals === -1 ? token : token.slice(0, equals);
     if (name === "--all") {
-      all = true;
+      const value = equals === -1 ? "true" : token.slice(equals + 1);
+      if (value !== "true" && value !== "false") throw new CliError("--all accepts only true or false via --all=true/false");
+      all = value === "true";
       continue;
     }
     if (name === "--max-items") {
@@ -1060,8 +1062,8 @@ export function extractPaginationFlags(tokens: string[]): PaginationFlags {
         throw new CliError("--max-items requires a value");
       }
       maxItems = Number(value);
-      if (!Number.isInteger(maxItems) || maxItems <= 0) {
-        throw new CliError("--max-items must be a positive integer");
+      if (!Number.isSafeInteger(maxItems) || maxItems <= 0) {
+        throw new CliError("--max-items must be a positive safe integer");
       }
       continue;
     }

@@ -40,6 +40,12 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ### Fixed
 
+- `--all=false` now disables multi-page traversal instead of silently enabling
+  it. Bare `--all` and `--all=true` still enable traversal; other values fail
+  with usage exit 2. `--max-items` rejects values outside JavaScript's safe integer
+  range and still requires enabled `--all`.
+
+
 - Repeated/mixed `--body-json` and `--body-file` inputs now fail with usage exit 2
   before file/stdin reads instead of silently using the last body. Negated body
   source options are also rejected. Scripts must select one complete body source;
