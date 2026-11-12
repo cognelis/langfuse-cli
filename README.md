@@ -428,7 +428,7 @@ again afterward, then reload the agent context. File alignment does not prove
 that the running agent loaded the new Skill. Doctor remains the connection and
 version overview; this command provides per-file installation detail.
 
-## Unreleased: offline API request plans
+## offline API request plans
 
 ```sh
 langfuse-cli --api-version 4.16.0 --dry-run --output json api prompts create --type text --name draft --prompt 'Hello {{name}}'

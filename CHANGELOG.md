@@ -10,95 +10,56 @@ version 2.0.0 is the first release of the fork and diverges from upstream 1.2.0.
 
 ## [Unreleased]
 
-### Added
-
-- `--dry-run --out-file PATH` saves the unexecuted request plan without an
-  envelope or stdout output, after input validation and without authentication.
-- All `--out-file` writes now use a private sibling temporary directory and atomic
-  replacement. Unix files use mode 0600. Symlink destinations are replaced instead
-  of modifying their targets; callers that intend to update a linked target should
-  pass its real path. Existing HTTP response/error-body behavior is unchanged.
-
-- `api schema [resource] [action]` returns a scoped schema with complete
-  parameter/body/auth metadata and the original snapshot identity. Aliases resolve
-  to canonical commands; schema aliases and shell completion support the same scope.
-  Unknown names, extra arguments and unknown options now fail instead of silently
-  returning the full schema; omit the scope to keep the existing full output.
-
-- `api search <terms...>` searches the selected bundled API snapshot offline
-  by command, alias, operation ID, route, method, and description; returns
-  canonical commands with version and deprecation details. No config or credentials
-  are needed. Multiple case-insensitive terms must all match; `auto` is refused.
-
-- API operations accept `--dry-run` to validate inputs against the selected
-  bundled contract and emit a structured, unexecuted request plan. Profile and
-  environment authentication is not resolved or included. The plan uses the
-  same path, query, and body serializer as execution.
-- Offline preview requires a bundled API version (not `auto`) and one request;
-  it rejects `--curl`, `--all`, and `--max-items` combinations.
-
-
-### Fixed
-
-- `--all=false` now disables multi-page traversal instead of silently enabling
-  it. Bare `--all` and `--all=true` still enable traversal; other values fail
-  with usage exit 2. `--max-items` rejects values outside JavaScript's safe integer
-  range and still requires enabled `--all`.
-
-
-- Repeated/mixed `--body-json` and `--body-file` inputs now fail with usage exit 2
-  before file/stdin reads instead of silently using the last body. Negated body
-  source options are also rejected. Scripts must select one complete body source;
-  repeatable array field flags continue to work.
-
-
-## [2.6.0] - 2026-11-11
+## [2.7.0] - 2026-11-12
 
 ### Added
 
-- `skills status [--target all|codex|claude]` performs an offline, read-only
-  inspection of managed Skill installations. It reports installed/bundled
-  versions and changed, missing, or unreadable files, including same-version
-  edits and missing references, without modifying user files.
-- The core Skill routes local maintenance directly to offline commands and
-  reserves profile/doctor preflight for data workflows. It describes the
-  inspect, review, refresh, verify, and context-reload sequence.
+- `skills status [--target all|codex|claude]` inspects installed Skill files offline,
+  including same-version edits, missing references and unreadable files.
+- `api search <terms...>` discovers operations in a bundled API snapshot using
+  command names, aliases, methods, routes and descriptions, without connecting.
+- `api schema [resource] [action]` returns a full or scoped command schema, retaining
+  parameter/body/authentication metadata and snapshot identity. Aliases resolve to
+  canonical operations; completion and table help support the same scope.
+- API operations accept `--dry-run` to validate and serialize one request without
+  executing it or resolving authentication. `--out-file PATH` saves the raw plan
+  object privately; offline planning requires a bundled API version rather than auto.
 
 ### Fixed
 
-- Standalone executables embed the complete Skill tree for both installation and
-  status checks. Release smoke tests exercise the embedded files from an isolated
-  environment. Local Skill commands no longer depend on connection configuration.
-
-
-## [2.5.2] - 2026-11-11
-
-### Fixed
-
-- Doctor now emits its full report and exits 3 when configuration cannot be read
-  or is invalid, while skipping service probes and retaining package/Skill
-  diagnostics. `config path` remains usable without parsing the configuration.
-- Doctor probes only validated targets; invalid environment hosts fail before API
-  version detection instead of falling back to the public cloud host.
-
-### Security
-
-- Malformed configuration errors no longer include JSON parser excerpts that can
-  echo secrets. Diagnostics preserve the repair path without rewriting files.
-
-
-## [2.5.1] - 2026-11-11
+- Standalone executables embed the full Skill tree for installation and status
+  checks, including when running outside a source checkout. Local Skill commands
+  do not depend on connection configuration.
+- Doctor retains a structured report when configuration cannot be read or parsed;
+  `config path` remains available, and invalid targets never trigger a cloud fallback.
+- Repeated/mixed complete-body inputs and negated body-source flags fail before
+  file/stdin reads instead of silently replacing the reviewed request body.
+- `--all=false` makes one request. Bare `--all` and `--all=true` enable bounded
+  pagination; invalid boolean values and unsafe `--max-items` integers are rejected.
+- Response and plan files are written via private temporary storage and atomic
+  replacement, preventing partial output and unintended writes through symlinks.
+- CI builds contracts and bundled Skills before tests, so clean checkouts run the
+  same contract-dependent regressions as local release validation.
 
 ### Security
 
-- Host URLs now reject user information, queries, and fragments before profile
-  persistence or requests, including URLs loaded from saved profiles. Invalid
-  URL errors no longer echo the supplied value. Reverse-proxy paths remain valid.
-- Migration: remove credentials, query strings, and fragments from any affected
-  saved `host` value in the config file named by the error. Store API credentials
-  with `auth login` or supported environment variables. Files are never rewritten
-  automatically, and rejected updates leave existing profiles unchanged.
+- Host URLs reject user information, query strings and fragments before persistence
+  or requests. Invalid URL and malformed configuration errors do not echo secrets.
 
+### Migration notes
+
+- Remove credentials/query strings/fragments from affected saved hosts; use auth
+  login or supported environment variables for authentication. Reverse-proxy paths
+  remain supported; configuration is never rewritten automatically.
+- Choose one `--body-json` or `--body-file`, or supported field flags. Repeatable
+  array fields remain supported. Unknown scoped-schema arguments now fail rather
+  than returning the full inventory. `--all=false` no longer traverses all pages.
+- `--out-file` replaces symlink destinations rather than following them and creates
+  Unix files with mode 0600. Pass a linked target's real path when intended. HTTP
+  failure bodies and exit codes retain their existing behavior.
+- Saved plans are review artifacts, not request bodies or replay commands. Keep
+  original inputs and response output paths separate. Skills describe discovery,
+  review, preflight and authorized execution; JSON envelope versions are unchanged.
 
 ## [2.5.0] - 2026-11-11
 

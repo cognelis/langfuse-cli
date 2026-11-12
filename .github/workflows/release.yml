@@ -93,6 +93,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Build CLI and contract fixtures
+        run: bun run build
+
       - name: Run tests
         run: bun test
 
